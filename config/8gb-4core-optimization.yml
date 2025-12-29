@@ -1,0 +1,336 @@
+# 8GB内存+4核CPU优化配置 (保留Kafka)
+# 专为小型量化交易服务器设计，保持完整架构
+
+version: '3.8'
+
+services:
+  # Zookeeper - Kafka依赖 (轻量化)
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: quant_zookeeper_8gb
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_INIT_LIMIT: 5
+      ZOOKEEPER_SYNC_LIMIT: 2
+    volumes:
+      - ./data/zookeeper:/var/lib/zookeeper/data
+    deploy:
+      resources:
+        limits:
+          memory: 512M    # Zookeeper轻量化
+          cpus: '0.3'
+        reservations:
+          memory: 256M
+          cpus: '0.1'
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # Kafka - 消息分发核心 (优化配置)
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: quant_kafka_8gb
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: true
+      KAFKA_NUM_PARTITIONS: 4  # 减少分区数
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      # 8GB内存优化配置
+      KAFKA_HEAP_OPTS: "-Xmx512m -Xms256m"  # JVM堆内存限制
+      KAFKA_LOG_RETENTION_HOURS: 12  # 12小时保留
+      KAFKA_LOG_RETENTION_BYTES: 536870912  # 512MB
+      KAFKA_LOG_SEGMENT_BYTES: 67108864     # 64MB
+      KAFKA_LOG_CLEANUP_POLICY: delete
+      KAFKA_COMPRESSION_TYPE: lz4  # 启用压缩
+    volumes:
+      - ./data/kafka:/var/lib/kafka/data
+    deploy:
+      resources:
+        limits:
+          memory: 800M    # Kafka内存限制
+          cpus: '0.8'
+        reservations:
+          memory: 512M
+          cpus: '0.2'
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "2"
+
+  # ClickHouse - 核心数据存储
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: quant_clickhouse_8gb
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - ./data/clickhouse:/var/lib/clickhouse
+      - ./config/clickhouse:/etc/clickhouse-server/config.d
+    environment:
+      CLICKHOUSE_DB: market_data
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ""
+    deploy:
+      resources:
+        limits:
+          memory: 2G      # 减少到2G给Kafka让空间
+          cpus: '1.5'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "2"
+
+  # PostgreSQL - 用户和交易数据
+  postgres:
+    image: postgres:14-alpine
+    container_name: quant_postgres_8gb
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: trading_db
+    command: >
+      postgres
+      -c shared_buffers=256MB
+      -c effective_cache_size=512MB
+      -c maintenance_work_mem=64MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=16MB
+      -c max_connections=50
+      -c work_mem=4MB
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          memory: 1G      # 减少PostgreSQL内存
+          cpus: '0.8'
+        reservations:
+          memory: 512M
+          cpus: '0.2'
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "2"
+
+  # Redis - 缓存和会话
+  redis:
+    image: redis:7-alpine
+    container_name: quant_redis_8gb
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./data/redis:/data
+    command: >
+      redis-server 
+      --appendonly yes 
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --save 900 1
+      --save 300 10
+      --tcp-keepalive 300
+      --timeout 300
+    deploy:
+      resources:
+        limits:
+          memory: 300M    # 进一步减少Redis内存
+          cpus: '0.3'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # Market Data Service - 市场数据服务
+  market-data:
+    build:
+      context: ./services/market-data
+      dockerfile: Dockerfile
+    container_name: quant_market_data_8gb
+    ports:
+      - "8081:8081"
+    environment:
+      - RUST_LOG=info
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/trading_db
+      - REDIS_URL=redis://redis:6379
+      - CLICKHOUSE_URL=http://clickhouse:8123
+    depends_on:
+      - postgres
+      - redis
+      - clickhouse
+    deploy:
+      resources:
+        limits:
+          memory: 800M    # 市场数据服务800M
+          cpus: '0.8'
+        reservations:
+          memory: 256M
+          cpus: '0.2'
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "2"
+
+  # Trading Engine - 交易引擎
+  trading-engine:
+    build:
+      context: ./services/trading-engine
+      dockerfile: Dockerfile
+    container_name: quant_trading_engine_8gb
+    ports:
+      - "8082:8082"
+    environment:
+      - RUST_LOG=info
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/trading_db
+    depends_on:
+      - postgres
+    deploy:
+      resources:
+        limits:
+          memory: 1G      # 交易引擎1G
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+          cpus: '0.2'
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "2"
+
+  # Strategy Engine - 策略引擎
+  strategy-engine:
+    build:
+      context: ./services/strategy-engine
+      dockerfile: Dockerfile
+    container_name: quant_strategy_engine_8gb
+    ports:
+      - "8083:8083"
+    environment:
+      - RUST_LOG=info
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/trading_db
+    depends_on:
+      - postgres
+    deploy:
+      resources:
+        limits:
+          memory: 800M    # 策略引擎800M
+          cpus: '0.8'
+        reservations:
+          memory: 256M
+          cpus: '0.2'
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "2"
+
+  # User Management - 用户管理 (轻量级)
+  user-management:
+    build:
+      context: ./services/user-management
+      dockerfile: Dockerfile
+    container_name: quant_user_mgmt_8gb
+    ports:
+      - "8084:8084"
+    environment:
+      - RUST_LOG=info
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/trading_db
+    depends_on:
+      - postgres
+    deploy:
+      resources:
+        limits:
+          memory: 400M    # 用户管理400M
+          cpus: '0.3'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # Risk Management - 风险管理
+  risk-management:
+    build:
+      context: ./services/risk-management
+      dockerfile: Dockerfile
+    container_name: quant_risk_mgmt_8gb
+    ports:
+      - "8085:8085"
+    environment:
+      - RUST_LOG=info
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/trading_db
+    depends_on:
+      - postgres
+    deploy:
+      resources:
+        limits:
+          memory: 600M    # 风险管理600M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "2"
+
+# 网络配置
+networks:
+  default:
+    name: quant_network_8gb
+    driver: bridge
+
+# 卷配置
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  clickhouse_data:
+    driver: local
+
+# 全局日志配置
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "2"

@@ -1,0 +1,152 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - "alert_rules.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+scrape_configs:
+  # 微服务监控
+  - job_name: 'market-data'
+    static_configs:
+      - targets: ['localhost:8081']
+    metrics_path: '/metrics'
+    scrape_interval: 5s
+
+  - job_name: 'trading-engine'
+    static_configs:
+      - targets: ['localhost:8082']
+    metrics_path: '/metrics'
+    scrape_interval: 5s
+
+  - job_name: 'strategy-engine'
+    static_configs:
+      - targets: ['localhost:8083']
+    metrics_path: '/metrics'
+    scrape_interval: 5s
+
+  - job_name: 'user-management'
+    static_configs:
+      - targets: ['localhost:8084']
+    metrics_path: '/metrics'
+    scrape_interval: 5s
+
+  - job_name: 'risk-management'
+    static_configs:
+      - targets: ['localhost:8085']
+    metrics_path: '/metrics'
+    scrape_interval: 5s
+
+  - job_name: 'notification'
+    static_configs:
+      - targets: ['localhost:8086']
+    metrics_path: '/metrics'
+    scrape_interval: 5s
+
+  # 多交易所连接器监控 - 扩展版
+  - job_name: 'binance-connector'
+    static_configs:
+      - targets: ['localhost:8081']
+    metrics_path: '/metrics/binance'
+    scrape_interval: 3s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: exchange
+        replacement: binance
+      - source_labels: [__address__]
+        target_label: connector_type
+        replacement: websocket
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'exchange_(.*)'
+        target_label: __name__
+        replacement: 'binance_${1}'
+
+  - job_name: 'okx-connector'
+    static_configs:
+      - targets: ['localhost:8081']
+    metrics_path: '/metrics/okx'
+    scrape_interval: 3s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: exchange
+        replacement: okx
+      - source_labels: [__address__]
+        target_label: connector_type
+        replacement: websocket
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'exchange_(.*)'
+        target_label: __name__
+        replacement: 'okx_${1}'
+
+  - job_name: 'huobi-connector'
+    static_configs:
+      - targets: ['localhost:8081']
+    metrics_path: '/metrics/huobi'
+    scrape_interval: 3s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: exchange
+        replacement: huobi
+      - source_labels: [__address__]
+        target_label: connector_type
+        replacement: websocket
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'exchange_(.*)'
+        target_label: __name__
+        replacement: 'huobi_${1}'
+
+  # 交易所REST API监控
+  - job_name: 'exchange-rest-apis'
+    static_configs:
+      - targets: ['api.binance.com:443', 'www.okx.com:443', 'api.huobi.pro:443']
+    metrics_path: '/probe'
+    params:
+      module: [http_2xx]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  # 交易所数据质量监控
+  - job_name: 'exchange-data-quality'
+    static_configs:
+      - targets: ['localhost:8081']
+    metrics_path: '/metrics/data-quality'
+    scrape_interval: 10s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        replacement: market-data
+
+  # 基础设施监控
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+
+  - job_name: 'redis-exporter'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+
+  - job_name: 'postgres-exporter'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+
+  - job_name: 'docker-containers'
+    static_configs:
+      - targets: ['host.docker.internal:9323']

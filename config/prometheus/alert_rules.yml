@@ -1,0 +1,227 @@
+groups:
+  - name: multi-exchange-alerts
+    rules:
+      # 多交易所连接状态告警
+      - alert: ExchangeConnectionDown
+        expr: exchange_connection_status{exchange=~"binance|okx|huobi"} == 0
+        for: 30s
+        labels:
+          severity: critical
+          exchange: "{{ $labels.exchange }}"
+        annotations:
+          summary: "Exchange {{ $labels.exchange }} connection is down"
+          description: "Exchange {{ $labels.exchange }} has been disconnected for more than 30 seconds. Immediate attention required!"
+
+      # 交易所延迟对比告警
+      - alert: ExchangeLatencySpike
+        expr: websocket_latency_ms{exchange=~"binance|okx|huobi"} > 100
+        for: 1m
+        labels:
+          severity: warning
+          exchange: "{{ $labels.exchange }}"
+        annotations:
+          summary: "High latency detected on {{ $labels.exchange }}"
+          description: "Latency on {{ $labels.exchange }} is {{ $value }}ms, exceeding 100ms threshold. Consider switching to backup exchange."
+
+      # 跨交易所延迟差异告警
+      - alert: CrossExchangeLatencyDifference
+        expr: |
+          (
+            max(websocket_latency_ms{exchange=~"binance|okx|huobi"}) - 
+            min(websocket_latency_ms{exchange=~"binance|okx|huobi"})
+          ) > 50
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Large latency difference between exchanges"
+          description: "Latency difference between exchanges is {{ $value }}ms, exceeding 50ms threshold"
+
+      # 交易所数据质量对比告警
+      - alert: ExchangeDataQualityDrop
+        expr: exchange_data_quality_score{exchange=~"binance|okx|huobi"} < 85
+        for: 3m
+        labels:
+          severity: warning
+          exchange: "{{ $labels.exchange }}"
+        annotations:
+          summary: "Data quality drop on {{ $labels.exchange }}"
+          description: "Data quality on {{ $labels.exchange }} is {{ $value }}%, below 85% threshold"
+
+      # 交易所吞吐量异常告警
+      - alert: ExchangeThroughputDrop
+        expr: rate(exchange_messages_total{exchange=~"binance|okx|huobi"}[5m]) < 100
+        for: 2m
+        labels:
+          severity: warning
+          exchange: "{{ $labels.exchange }}"
+        annotations:
+          summary: "Low throughput on {{ $labels.exchange }}"
+          description: "Message throughput on {{ $labels.exchange }} is {{ $value }} msg/sec, below 100 msg/sec threshold"
+
+      # 交易所错误率激增告警
+      - alert: ExchangeErrorRateSpike
+        expr: rate(exchange_errors_total{exchange=~"binance|okx|huobi"}[5m]) > 5
+        for: 1m
+        labels:
+          severity: critical
+          exchange: "{{ $labels.exchange }}"
+        annotations:
+          summary: "High error rate on {{ $labels.exchange }}"
+          description: "Error rate on {{ $labels.exchange }} is {{ $value }} errors/sec, exceeding 5 errors/sec threshold"
+
+      # 交易所WebSocket重连频繁告警
+      - alert: FrequentWebSocketReconnections
+        expr: rate(websocket_reconnections_total{exchange=~"binance|okx|huobi"}[10m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          exchange: "{{ $labels.exchange }}"
+        annotations:
+          summary: "Frequent WebSocket reconnections on {{ $labels.exchange }}"
+          description: "WebSocket reconnection rate on {{ $labels.exchange }} is {{ $value }} reconnections/sec"
+
+  - name: trading-platform-alerts
+    rules:
+      # 关键服务离线告警
+      - alert: CriticalServiceDown
+        expr: up{job=~"market-data|trading-engine|strategy-engine|user-management|risk-management"} == 0
+        for: 30s
+        labels:
+          severity: critical
+          service: "{{ $labels.job }}"
+        annotations:
+          summary: "Critical service {{ $labels.job }} is down"
+          description: "Critical service {{ $labels.job }} has been down for more than 30 seconds. System functionality may be impaired!"
+
+      # 非关键服务离线告警
+      - alert: ServiceDown
+        expr: up{job="notification"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          service: "{{ $labels.job }}"
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: "Service {{ $labels.job }} has been down for more than 2 minutes"
+
+      # API响应时间告警
+      - alert: SlowAPIResponse
+        expr: http_request_duration_seconds{quantile="0.95"} > 0.5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow API response time on {{ $labels.job }}"
+          description: "95th percentile response time on {{ $labels.job }} is {{ $value }}s, exceeding 0.5s threshold"
+
+      # 数据库连接池告警
+      - alert: DatabaseConnectionPoolExhaustion
+        expr: database_connections_active / database_connections_max > 0.8
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Database connection pool near exhaustion"
+          description: "Database connection pool usage is {{ $value }}%, exceeding 80%"
+
+      # Redis连接告警
+      - alert: RedisConnectionIssue
+        expr: redis_connected_clients > 1000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High Redis connection count"
+          description: "Redis connected clients count is {{ $value }}, exceeding 1000"
+
+      # 内存泄漏检测告警
+      - alert: PossibleMemoryLeak
+        expr: increase(process_resident_memory_bytes[1h]) > 100 * 1024 * 1024
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Possible memory leak in {{ $labels.job }}"
+          description: "Memory usage in {{ $labels.job }} increased by {{ $value }} bytes in the last hour"
+
+  - name: system-performance-alerts
+    rules:
+      # 系统资源告警
+      - alert: HighMemoryUsage
+        expr: (process_resident_memory_bytes / 1024 / 1024) > 2000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage on {{ $labels.job }}"
+          description: "Memory usage on {{ $labels.job }} is {{ $value }}MB, exceeding 2GB threshold"
+
+      # CPU使用率告警
+      - alert: HighCPUUsage
+        expr: rate(process_cpu_seconds_total[5m]) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage on {{ $labels.job }}"
+          description: "CPU usage on {{ $labels.job }} is {{ $value }}%, exceeding 80%"
+
+      # 磁盘I/O告警
+      - alert: HighDiskIO
+        expr: rate(node_disk_io_time_seconds_total[5m]) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High disk I/O on {{ $labels.device }}"
+          description: "Disk I/O utilization on {{ $labels.device }} is {{ $value }}%"
+
+      # 网络流量告警
+      - alert: HighNetworkTraffic
+        expr: rate(node_network_receive_bytes_total[5m]) > 100 * 1024 * 1024
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High network traffic on {{ $labels.device }}"
+          description: "Network receive rate on {{ $labels.device }} is {{ $value }} bytes/sec"
+
+  - name: business-logic-alerts
+    rules:
+      # 交易量异常告警
+      - alert: TradingVolumeAnomaly
+        expr: |
+          (
+            trading_volume_1h > 
+            avg_over_time(trading_volume_1h[24h]) * 3
+          ) or (
+            trading_volume_1h < 
+            avg_over_time(trading_volume_1h[24h]) * 0.3
+          )
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Trading volume anomaly detected"
+          description: "Current trading volume {{ $value }} is significantly different from 24h average"
+
+      # 风险管理告警
+      - alert: RiskLimitExceeded
+        expr: current_risk_exposure > risk_limit_threshold
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Risk limit exceeded"
+          description: "Current risk exposure {{ $value }} exceeds the configured limit"
+
+      # 策略性能告警
+      - alert: StrategyPerformanceDrop
+        expr: strategy_pnl_1h < -1000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Strategy performance drop detected"
+          description: "Strategy PnL in the last hour is {{ $value }}, indicating poor performance"

@@ -1,0 +1,67 @@
+<?xml version="1.0"?>
+<clickhouse>
+    <!-- Arc共享架构临时文件清理配置 -->
+    <tmp_policy>
+        <!-- 临时文件最大保留时间（秒）- Arc共享，15分钟清理 -->
+        <max_temporary_data_on_disk_size>2147483648</max_temporary_data_on_disk_size> <!-- 2GB总限制 -->
+        
+        <!-- 临时文件清理间隔（秒）- 10分钟 -->
+        <temporary_files_lifetime>600</temporary_files_lifetime> <!-- 10分钟 -->
+        
+        <!-- 自动清理过期的临时文件 - 15分钟 -->
+        <cleanup_temporary_directories_lifetime>900</cleanup_temporary_directories_lifetime> <!-- 15分钟 -->
+    </tmp_policy>
+
+    <!-- 后台任务配置 -->
+    <background_pool_size>16</background_pool_size>
+    <background_schedule_pool_size>16</background_schedule_pool_size>
+    
+    <!-- 清理任务配置 -->
+    <merge_tree>
+        <!-- 清理过期数据的间隔 -->
+        <cleanup_delay_period>60</cleanup_delay_period>
+        
+        <!-- 临时目录清理 -->
+        <temporary_directories_lifetime>3600</temporary_directories_lifetime>
+        
+        <!-- 最大临时文件大小 -->
+        <max_temporary_data_on_disk_size_for_user>5368709120</max_temporary_data_on_disk_size_for_user> <!-- 5GB per user -->
+        <max_temporary_data_on_disk_size_for_query>2147483648</max_temporary_data_on_disk_size_for_query> <!-- 2GB per query -->
+    </merge_tree>
+
+    <!-- 系统表清理配置 -->
+    <system_log>
+        <!-- 系统日志保留时间 -->
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+        <max_size_rows>1048576</max_size_rows>
+        <reserved_size_rows>8192</reserved_size_rows>
+        <buffer_size_rows_flush_threshold>524288</buffer_size_rows_flush_threshold>
+        <flush_on_crash>false</flush_on_crash>
+    </system_log>
+
+    <!-- 查询日志清理 -->
+    <query_log>
+        <database>system</database>
+        <table>query_log</table>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+        <max_size_rows>1048576</max_size_rows>
+        <reserved_size_rows>8192</reserved_size_rows>
+        <buffer_size_rows_flush_threshold>524288</buffer_size_rows_flush_threshold>
+        <flush_on_crash>false</flush_on_crash>
+        <!-- 自动删除7天前的日志 -->
+        <ttl_only_drop_parts>1</ttl_only_drop_parts>
+    </query_log>
+
+    <!-- 内存使用限制 -->
+    <max_memory_usage>10000000000</max_memory_usage> <!-- 10GB -->
+    <max_memory_usage_for_user>5000000000</max_memory_usage_for_user> <!-- 5GB per user -->
+    
+    <!-- 磁盘清理策略 -->
+    <storage_configuration>
+        <disks>
+            <default>
+                <keep_free_space_bytes>10737418240</keep_free_space_bytes> <!-- 保留10GB空闲空间 -->
+            </default>
+        </disks>
+    </storage_configuration>
+</clickhouse>

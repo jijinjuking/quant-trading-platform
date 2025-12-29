@@ -1,0 +1,31 @@
+/* 中文字体优化 */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* 全局字体设置 */
+* {
+  font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', '微软雅黑', 'Helvetica Neue', Helvetica, Arial, sans-serif !important;
+}
+
+/* 等宽字体 */
+.font-mono, 
+code, 
+pre,
+.price,
+.quantity,
+.balance,
+.volume {
+  font-family: 'JetBrains Mono', 'Consolas', '等距更纱黑体 SC', 'Courier New', monospace !important;
+}
+
+/* 确保中文字符正确显示 */
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* 修复可能的编码问题 */
+html {
+  -webkit-text-size-adjust: 100%;
+  -ms-text-size-adjust: 100%;
+}

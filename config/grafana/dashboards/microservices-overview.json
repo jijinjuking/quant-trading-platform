@@ -1,0 +1,253 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "Quantitative Trading Platform - Multi-Exchange Overview",
+    "tags": ["trading", "microservices", "monitoring", "multi-exchange"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Exchange Connection Status",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+        "targets": [
+          {
+            "expr": "exchange_connection_status{exchange=\"binance\"}",
+            "legendFormat": "Binance Connection",
+            "refId": "A"
+          },
+          {
+            "expr": "exchange_connection_status{exchange=\"okx\"}",
+            "legendFormat": "OKX Connection",
+            "refId": "B"
+          },
+          {
+            "expr": "exchange_connection_status{exchange=\"huobi\"}",
+            "legendFormat": "Huobi Connection",
+            "refId": "C"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": 0},
+                {"color": "green", "value": 1}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Cross-Exchange Latency Comparison",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+        "targets": [
+          {
+            "expr": "websocket_latency_ms{exchange=\"binance\"}",
+            "legendFormat": "Binance Latency"
+          },
+          {
+            "expr": "websocket_latency_ms{exchange=\"okx\"}",
+            "legendFormat": "OKX Latency"
+          },
+          {
+            "expr": "websocket_latency_ms{exchange=\"huobi\"}",
+            "legendFormat": "Huobi Latency"
+          }
+        ],
+        "yAxes": [
+          {"label": "Latency (ms)", "min": 0}
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Service Health Status",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+        "targets": [
+          {
+            "expr": "up{job=\"market-data\"}",
+            "legendFormat": "Market Data (8081)",
+            "refId": "A"
+          },
+          {
+            "expr": "up{job=\"trading-engine\"}",
+            "legendFormat": "Trading Engine (8082)",
+            "refId": "B"
+          },
+          {
+            "expr": "up{job=\"strategy-engine\"}",
+            "legendFormat": "Strategy Engine (8083)",
+            "refId": "C"
+          },
+          {
+            "expr": "up{job=\"user-management\"}",
+            "legendFormat": "User Management (8084)",
+            "refId": "D"
+          },
+          {
+            "expr": "up{job=\"risk-management\"}",
+            "legendFormat": "Risk Management (8085)",
+            "refId": "E"
+          },
+          {
+            "expr": "up{job=\"notification\"}",
+            "legendFormat": "Notification (8086)",
+            "refId": "F"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": 0},
+                {"color": "green", "value": 1}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "Exchange Throughput Comparison",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+        "targets": [
+          {
+            "expr": "rate(exchange_messages_total{exchange=\"binance\"}[5m])",
+            "legendFormat": "Binance Messages/sec"
+          },
+          {
+            "expr": "rate(exchange_messages_total{exchange=\"okx\"}[5m])",
+            "legendFormat": "OKX Messages/sec"
+          },
+          {
+            "expr": "rate(exchange_messages_total{exchange=\"huobi\"}[5m])",
+            "legendFormat": "Huobi Messages/sec"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Exchange Error Rates",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+        "targets": [
+          {
+            "expr": "rate(exchange_errors_total{exchange=\"binance\"}[5m])",
+            "legendFormat": "Binance Errors/sec"
+          },
+          {
+            "expr": "rate(exchange_errors_total{exchange=\"okx\"}[5m])",
+            "legendFormat": "OKX Errors/sec"
+          },
+          {
+            "expr": "rate(exchange_errors_total{exchange=\"huobi\"}[5m])",
+            "legendFormat": "Huobi Errors/sec"
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Data Quality Metrics",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+        "targets": [
+          {
+            "expr": "exchange_data_quality_score{exchange=\"binance\"}",
+            "legendFormat": "Binance Quality"
+          },
+          {
+            "expr": "exchange_data_quality_score{exchange=\"okx\"}",
+            "legendFormat": "OKX Quality"
+          },
+          {
+            "expr": "exchange_data_quality_score{exchange=\"huobi\"}",
+            "legendFormat": "Huobi Quality"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "color": {"mode": "thresholds"},
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": 0},
+                {"color": "yellow", "value": 80},
+                {"color": "green", "value": 95}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 7,
+        "title": "System Resource Usage",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 24},
+        "targets": [
+          {
+            "expr": "process_resident_memory_bytes / 1024 / 1024",
+            "legendFormat": "Memory Usage (MB) - {{job}}"
+          },
+          {
+            "expr": "rate(process_cpu_seconds_total[5m]) * 100",
+            "legendFormat": "CPU Usage (%) - {{job}}"
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "WebSocket Connections by Exchange",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 32},
+        "targets": [
+          {
+            "expr": "websocket_connections_active{exchange=\"binance\"}",
+            "legendFormat": "Binance Connections"
+          },
+          {
+            "expr": "websocket_connections_active{exchange=\"okx\"}",
+            "legendFormat": "OKX Connections"
+          },
+          {
+            "expr": "websocket_connections_active{exchange=\"huobi\"}",
+            "legendFormat": "Huobi Connections"
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Trading Volume by Exchange (24h)",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32},
+        "targets": [
+          {
+            "expr": "trading_volume_24h{exchange=\"binance\"}",
+            "legendFormat": "Binance Volume"
+          },
+          {
+            "expr": "trading_volume_24h{exchange=\"okx\"}",
+            "legendFormat": "OKX Volume"
+          },
+          {
+            "expr": "trading_volume_24h{exchange=\"huobi\"}",
+            "legendFormat": "Huobi Volume"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD",
+            "color": {"mode": "value"}
+          }
+        }
+      }
+    ],
+    "time": {"from": "now-1h", "to": "now"},
+    "refresh": "5s"
+  }
+}

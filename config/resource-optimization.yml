@@ -1,0 +1,130 @@
+# 50GB硬盘服务器资源优化配置
+# 适用于4-8核CPU，50GB硬盘的小型服务器
+
+version: '3.8'
+
+# 资源优化的Docker Compose配置
+services:
+  # ClickHouse - 压缩配置
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: quant_clickhouse_optimized
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - ./data/clickhouse:/var/lib/clickhouse
+      - ./config/clickhouse:/etc/clickhouse-server/config.d
+    environment:
+      CLICKHOUSE_DB: market_data
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ""
+    deploy:
+      resources:
+        limits:
+          memory: 1.5G  # 从4G降到1.5G
+          cpus: '2.0'   # 限制CPU使用
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+    restart: unless-stopped
+
+  # Redis - 最小化配置
+  redis:
+    image: redis:7-alpine
+    container_name: quant_redis_optimized
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./data/redis:/data
+    command: >
+      redis-server 
+      --appendonly yes 
+      --maxmemory 256mb 
+      --maxmemory-policy allkeys-lru
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+    deploy:
+      resources:
+        limits:
+          memory: 300M  # 从512M降到300M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+    restart: unless-stopped
+
+  # PostgreSQL - 轻量配置
+  postgres:
+    image: postgres:14-alpine  # 使用alpine版本
+    container_name: quant_postgres_optimized
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: trading_db
+      # PostgreSQL优化参数
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    command: >
+      postgres
+      -c shared_buffers=128MB
+      -c effective_cache_size=512MB
+      -c maintenance_work_mem=64MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=16MB
+      -c default_statistics_target=100
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          memory: 800M  # 限制内存使用
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+          cpus: '0.2'
+    restart: unless-stopped
+
+  # 移除Kafka和Zookeeper（可选组件）
+  # 如果需要消息队列，可以使用Redis Streams替代
+
+# 磁盘空间优化配置
+x-disk-optimization: &disk-optimization
+  # 日志轮转配置
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+# 网络优化
+networks:
+  quant_network:
+    driver: bridge
+    driver_opts:
+      com.docker.network.driver.mtu: 1500
+
+# 卷优化
+volumes:
+  postgres_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./data/postgres
+  redis_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./data/redis
+  clickhouse_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./data/clickhouse

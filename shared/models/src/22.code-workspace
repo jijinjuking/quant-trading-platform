@@ -1,0 +1,16 @@
+{
+	"folders": [
+		{
+			"path": "../../.."
+		},
+		{
+			"path": "L:/quant-backend"
+		},
+		{
+			"path": "L:/quant-backend66"
+		}
+	],
+	"settings": {
+		"typescript.autoClosingTags": false
+	}
+}

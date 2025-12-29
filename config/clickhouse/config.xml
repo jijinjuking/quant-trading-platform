@@ -1,0 +1,109 @@
+<?xml version="1.0"?>
+<clickhouse>
+    <!-- 基础配置 -->
+    <logger>
+        <level>information</level>
+        <log>/var/log/clickhouse-server/clickhouse-server.log</log>
+        <errorlog>/var/log/clickhouse-server/clickhouse-server.err.log</errorlog>
+        <size>1000M</size>
+        <count>10</count>
+    </logger>
+
+    <!-- 网络配置 -->
+    <http_port>8123</http_port>
+    <tcp_port>9000</tcp_port>
+    <listen_host>::</listen_host>
+
+    <!-- 数据路径 -->
+    <path>/var/lib/clickhouse/</path>
+    <tmp_path>/var/lib/clickhouse/tmp/</tmp_path>
+    <user_files_path>/var/lib/clickhouse/user_files/</user_files_path>
+    <format_schema_path>/var/lib/clickhouse/format_schemas/</format_schema_path>
+
+    <!-- 8GB内存优化配置 -->
+    <merge_tree>
+        <!-- 临时目录生命周期（秒）- 3分钟快速清理 -->
+        <temporary_directories_lifetime>180</temporary_directories_lifetime>
+        
+        <!-- 清理检查间隔（秒）- 每30秒检查一次 -->
+        <cleanup_delay_period>30</cleanup_delay_period>
+        
+        <!-- 最大临时数据大小 - 8GB内存严格限制 -->
+        <max_temporary_data_on_disk_size_for_user>134217728</max_temporary_data_on_disk_size_for_user> <!-- 128MB -->
+        <max_temporary_data_on_disk_size_for_query>67108864</max_temporary_data_on_disk_size_for_query> <!-- 64MB -->
+        
+        <!-- 后台清理线程数 -->
+        <number_of_free_entries_in_pool_to_lower_max_size_of_merge>8</number_of_free_entries_in_pool_to_lower_max_size_of_merge>
+        <max_bytes_to_merge_at_min_space_in_pool>1048576</max_bytes_to_merge_at_min_space_in_pool>
+    </merge_tree>
+
+    <!-- 后台任务池配置 -->
+    <background_pool_size>16</background_pool_size>
+    <background_schedule_pool_size>16</background_schedule_pool_size>
+    <background_fetches_pool_size>8</background_fetches_pool_size>
+    <background_move_pool_size>8</background_move_pool_size>
+
+    <!-- 内存和磁盘限制 - 8GB内存优化 -->
+    <max_server_memory_usage>2147483648</max_server_memory_usage> <!-- 2GB内存限制 -->
+    <max_temporary_data_on_disk_size>268435456</max_temporary_data_on_disk_size> <!-- 256MB临时数据 -->
+
+    <!-- 查询处理配置 - 4核CPU优化 -->
+    <max_concurrent_queries>8</max_concurrent_queries> <!-- 4核CPU，每核2个查询 -->
+    <max_connections>256</max_connections> <!-- 降低连接数 -->
+    <keep_alive_timeout>3</keep_alive_timeout>
+
+    <!-- 压缩配置 -->
+    <compression>
+        <case>
+            <method>lz4</method>
+        </case>
+    </compression>
+
+    <!-- 系统表配置 -->
+    <query_log>
+        <database>system</database>
+        <table>query_log</table>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+        <max_size_rows>1048576</max_size_rows>
+        <!-- 7天后自动删除查询日志 -->
+        <ttl>toDateTime(event_time) + INTERVAL 7 DAY</ttl>
+    </query_log>
+
+    <query_thread_log>
+        <database>system</database>
+        <table>query_thread_log</table>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+        <max_size_rows>1048576</max_size_rows>
+        <ttl>toDateTime(event_time) + INTERVAL 7 DAY</ttl>
+    </query_thread_log>
+
+    <!-- 磁盘策略 -->
+    <storage_configuration>
+        <disks>
+            <default>
+                <path>/var/lib/clickhouse/</path>
+                <keep_free_space_bytes>10737418240</keep_free_space_bytes> <!-- 保留10GB -->
+            </default>
+        </disks>
+        
+        <policies>
+            <default>
+                <volumes>
+                    <default>
+                        <disk>default</disk>
+                        <!-- 自动清理策略 -->
+                        <max_data_part_size_bytes>10737418240</max_data_part_size_bytes>
+                    </default>
+                </volumes>
+            </default>
+        </policies>
+    </storage_configuration>
+
+    <!-- 分布式DDL -->
+    <distributed_ddl>
+        <path>/clickhouse/task_queue/ddl</path>
+    </distributed_ddl>
+
+    <!-- 格式化配置 -->
+    <format_schema_path>/var/lib/clickhouse/format_schemas/</format_schema_path>
+</clickhouse>

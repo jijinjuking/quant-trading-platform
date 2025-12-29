@@ -1,0 +1,57 @@
+<?xml version="1.0"?>
+<clickhouse>
+    <users>
+        <default>
+            <!-- 用户级别的临时文件限制 -->
+            <max_memory_usage>5000000000</max_memory_usage> <!-- 5GB -->
+            <max_temporary_data_on_disk_size>2147483648</max_temporary_data_on_disk_size> <!-- 2GB -->
+            
+            <!-- 查询超时设置 -->
+            <max_execution_time>300</max_execution_time> <!-- 5分钟 -->
+            <timeout_before_checking_execution_speed>10</timeout_before_checking_execution_speed>
+            
+            <!-- 网络超时 -->
+            <send_timeout>300</send_timeout>
+            <receive_timeout>300</receive_timeout>
+            
+            <!-- 临时表清理 -->
+            <temporary_live_view_timeout>5</temporary_live_view_timeout>
+            
+            <profile>default</profile>
+            <quota>default</quota>
+            
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+        </default>
+    </users>
+
+    <profiles>
+        <default>
+            <!-- 查询复杂度限制 -->
+            <max_memory_usage>5000000000</max_memory_usage>
+            <use_uncompressed_cache>0</use_uncompressed_cache>
+            <load_balancing>random</load_balancing>
+            
+            <!-- 临时数据限制 -->
+            <max_temporary_data_on_disk_size_for_user>2147483648</max_temporary_data_on_disk_size_for_user>
+            <max_temporary_data_on_disk_size_for_query>1073741824</max_temporary_data_on_disk_size_for_query>
+            
+            <!-- 自动清理设置 -->
+            <cleanup_delay_period>60</cleanup_delay_period>
+        </default>
+    </profiles>
+
+    <quotas>
+        <default>
+            <interval>
+                <duration>3600</duration>
+                <queries>0</queries>
+                <errors>0</errors>
+                <result_rows>0</result_rows>
+                <read_rows>0</read_rows>
+                <execution_time>0</execution_time>
+            </interval>
+        </default>
+    </quotas>
+</clickhouse>
