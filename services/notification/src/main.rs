@@ -15,6 +15,7 @@ mod interface;
 mod application;
 mod domain;
 mod infrastructure;
+mod bootstrap;
 
 use anyhow::Result;
 use std::net::SocketAddr;

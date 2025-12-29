@@ -24,3 +24,6 @@
 
 /// 缓存适配器模块
 pub mod cache;
+
+/// 认证适配器模块
+pub mod auth;

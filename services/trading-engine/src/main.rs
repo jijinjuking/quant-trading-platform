@@ -12,6 +12,7 @@ mod interface;      // 接口层 - HTTP/gRPC入口
 mod application;    // 应用层 - 用例编排
 mod domain;         // 领域层 - 核心业务逻辑
 mod infrastructure; // 基础设施层 - 外部依赖实现
+mod bootstrap;      // 依赖注入模块
 
 // ============================================================
 // 外部依赖导入
