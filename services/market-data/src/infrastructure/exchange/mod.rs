@@ -1,9 +1,7 @@
-//! # 交易所连接器 (Exchange Connectors)
-//! 
-//! 提供与各交易所 WebSocket API 交互的实现。
-//! 
-//! ## 子模块
-//! - `binance_ws`: 币安 WebSocket 连接器
+//! # 交易所适配器模块
+//!
+//! 提供各交易所的行情接入实现。
 
-/// 币安 WebSocket 连接器 - 实现 MarketExchangePort
 pub mod binance_ws;
+
+pub use binance_ws::BinanceWebSocket;

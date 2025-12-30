@@ -1,22 +1,30 @@
 //! # 依赖注入模块 (Bootstrap)
 //!
-//! 本模块负责组装应用层服务，完成依赖注入。
+//! 唯一允许组装 Adapter 的地方。
+//!
+//! ## 规则
+//! - ✅ 使用 Arc<T> 共享 Adapter
+//! - ✅ 在此处 new Adapter
+//! - ❌ 不在 service 内 new adapter
 
-use crate::infrastructure::exchange::binance_ws::BinanceWebSocket;
-use crate::infrastructure::messaging::kafka_producer::KafkaProducer;
-use crate::application::service::market_service::MarketService;
+use std::sync::Arc;
 
-/// 创建行情服务实例
+use crate::state::MarketDataConfig;
+use crate::application::MarketDataService;
+use crate::infrastructure::exchange::BinanceWebSocket;
+use crate::infrastructure::messaging::KafkaProducer;
+
+/// 构建行情数据服务
 ///
-/// # 参数
-/// - `ws_url`: WebSocket 连接地址
-/// - `kafka_brokers`: Kafka broker 地址
-#[allow(dead_code)]
-pub fn create_market_service(
-    ws_url: String,
-    kafka_brokers: String,
-) -> MarketService<BinanceWebSocket, KafkaProducer> {
-    let exchange = BinanceWebSocket::new(ws_url);
-    let messenger = KafkaProducer::new(kafka_brokers);
-    MarketService::new(exchange, messenger)
+/// 完成依赖注入，返回可运行的服务实例。
+pub fn build() -> MarketDataService<Arc<BinanceWebSocket>, Arc<KafkaProducer>> {
+    // 加载配置
+    let config = MarketDataConfig::from_env();
+
+    // 创建 Adapter（只在这里 new）
+    let exchange = Arc::new(BinanceWebSocket::new(config.ws_url));
+    let message = Arc::new(KafkaProducer::new(config.kafka_brokers, config.kafka_topic));
+
+    // 注入到 Service
+    MarketDataService::new(exchange, message)
 }

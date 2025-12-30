@@ -1,67 +1,29 @@
-//! # 应用状态 (Application State)
-//! 
-//! 管理行情数据服务的全局状态和配置。
-//! 
-//! ## 包含内容
-//! - `AppState`: 应用状态（可跨请求共享）
-//! - `AppConfig`: 应用配置
+//! # 应用配置 (Application Config)
+//!
+//! market-data 服务的配置管理。
+//! 注意：market-data 不需要 AppState，只需要配置。
 
-// ============================================================================
-// 外部依赖导入
-// ============================================================================
-
-use anyhow::Result;    // 错误处理
-use std::sync::Arc;    // 原子引用计数 - 线程安全共享
-
-// ============================================================================
-// 应用状态结构体
-// ============================================================================
-
-/// 应用状态 - 跨请求共享的全局状态
-/// 
-/// 使用 `Clone` 派生宏，配合 `Arc` 实现零成本克隆。
-/// 在 Axum 中作为 State 提取器使用。
-#[derive(Clone)]
-pub struct AppState {
-    /// 应用配置 - 使用 Arc 包装实现共享
-    #[allow(dead_code)]  // 骨架阶段允许未使用字段
-    pub config: Arc<AppConfig>,
-}
-
-// ============================================================================
-// 应用配置结构体
-// ============================================================================
-
-/// 应用配置 - 存储服务运行所需的配置项
+/// 行情服务配置
 #[derive(Debug, Clone)]
-pub struct AppConfig {
-    /// ClickHouse 连接地址 - 用于存储时序数据
-    #[allow(dead_code)]  // 骨架阶段允许未使用字段
-    pub clickhouse_url: String,
+pub struct MarketDataConfig {
+    /// WebSocket 连接地址
+    pub ws_url: String,
+    /// Kafka broker 地址
+    pub kafka_brokers: String,
+    /// Kafka topic 名称
+    pub kafka_topic: String,
 }
 
-// ============================================================================
-// 应用状态实现
-// ============================================================================
-
-impl AppState {
-    /// 创建新的应用状态实例
-    /// 
-    /// 从环境变量加载配置，初始化共享资源。
-    /// 
-    /// # 返回
-    /// - `Ok(AppState)`: 初始化成功
-    /// - `Err`: 初始化失败（如数据库连接失败）
-    pub async fn new() -> Result<Self> {
-        // 从环境变量加载配置
-        let config = AppConfig {
-            // ClickHouse URL，默认本地地址
-            clickhouse_url: std::env::var("CLICKHOUSE_URL")
-                .unwrap_or_else(|_| "http://localhost:8123".to_string()),
-        };
-        
-        Ok(Self {
-            config: Arc::new(config),
-        })
+impl MarketDataConfig {
+    /// 从环境变量加载配置
+    pub fn from_env() -> Self {
+        Self {
+            ws_url: std::env::var("BINANCE_WS_URL")
+                .unwrap_or_else(|_| "wss://stream.binance.com:9443/ws".to_string()),
+            kafka_brokers: std::env::var("KAFKA_BROKERS")
+                .unwrap_or_else(|_| "localhost:9092".to_string()),
+            kafka_topic: std::env::var("KAFKA_MARKET_TOPIC")
+                .unwrap_or_else(|_| "market-events".to_string()),
+        }
     }
 }
