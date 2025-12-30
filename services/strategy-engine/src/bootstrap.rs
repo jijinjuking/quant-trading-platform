@@ -7,6 +7,7 @@ use crate::infrastructure::repository::strategy_repository::StrategyRepository;
 use crate::infrastructure::messaging::kafka_producer::KafkaProducer;
 use crate::infrastructure::messaging::kafka_consumer::KafkaConsumer;
 use crate::infrastructure::messaging::mock_consumer::MockConsumer;
+use crate::infrastructure::strategy::noop_strategy::NoopStrategy;
 use crate::application::service::strategy_service::StrategyService;
 use crate::application::service::market_event_consumer_service::MarketEventConsumerService;
 
@@ -23,7 +24,7 @@ pub fn create_strategy_service(
     StrategyService::new(repository, messenger)
 }
 
-/// 创建行情事件消费服务（Kafka）
+/// 创建行情事件消费服务（Kafka + NoopStrategy）
 ///
 /// # 参数
 /// - `brokers`: Kafka broker 地址
@@ -34,14 +35,16 @@ pub fn create_market_event_consumer(
     brokers: String,
     topic: String,
     group_id: String,
-) -> MarketEventConsumerService<Arc<KafkaConsumer>> {
+) -> MarketEventConsumerService<Arc<KafkaConsumer>, Arc<NoopStrategy>> {
     let consumer = Arc::new(KafkaConsumer::new(brokers, topic, group_id));
-    MarketEventConsumerService::new(consumer)
+    let strategy = Arc::new(NoopStrategy::new());
+    MarketEventConsumerService::new(consumer, strategy)
 }
 
-/// 创建行情事件消费服务（Mock，用于测试）
+/// 创建行情事件消费服务（Mock + NoopStrategy，用于测试）
 #[allow(dead_code)]
-pub fn create_mock_market_event_consumer() -> MarketEventConsumerService<Arc<MockConsumer>> {
+pub fn create_mock_market_event_consumer() -> MarketEventConsumerService<Arc<MockConsumer>, Arc<NoopStrategy>> {
     let consumer = Arc::new(MockConsumer::new());
-    MarketEventConsumerService::new(consumer)
+    let strategy = Arc::new(NoopStrategy::new());
+    MarketEventConsumerService::new(consumer, strategy)
 }

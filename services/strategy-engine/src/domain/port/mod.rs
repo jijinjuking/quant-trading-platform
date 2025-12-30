@@ -11,4 +11,8 @@ pub mod message_port;
 /// 行情事件消费端口
 pub mod market_event_port;
 
+/// 策略端口
+pub mod strategy_port;
+
 pub use market_event_port::MarketEventPort;
+pub use strategy_port::StrategyPort;
