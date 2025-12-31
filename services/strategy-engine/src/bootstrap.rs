@@ -8,8 +8,10 @@ use crate::infrastructure::messaging::kafka_producer::KafkaProducer;
 use crate::infrastructure::messaging::kafka_consumer::KafkaConsumer;
 use crate::infrastructure::messaging::mock_consumer::MockConsumer;
 use crate::infrastructure::strategy::noop_strategy::NoopStrategy;
+use crate::infrastructure::risk::noop_risk::NoopRisk;
 use crate::application::service::strategy_service::StrategyService;
 use crate::application::service::market_event_consumer_service::MarketEventConsumerService;
+use crate::application::service::risk_service::RiskService;
 
 /// 创建策略服务实例
 ///
@@ -47,4 +49,11 @@ pub fn create_mock_market_event_consumer() -> MarketEventConsumerService<Arc<Moc
     let consumer = Arc::new(MockConsumer::new());
     let strategy = Arc::new(NoopStrategy::new());
     MarketEventConsumerService::new(consumer, strategy)
+}
+
+/// 创建风控服务（NoopRisk，v1 占位骨架）
+#[allow(dead_code)]
+pub fn create_risk_service() -> RiskService<Arc<NoopRisk>> {
+    let risk = Arc::new(NoopRisk::new());
+    RiskService::new(risk)
 }

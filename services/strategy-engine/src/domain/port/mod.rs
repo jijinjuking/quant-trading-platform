@@ -14,5 +14,9 @@ pub mod market_event_port;
 /// 策略端口
 pub mod strategy_port;
 
+/// 风控端口
+pub mod risk_port;
+
 pub use market_event_port::MarketEventPort;
 pub use strategy_port::StrategyPort;
+pub use risk_port::RiskPort;

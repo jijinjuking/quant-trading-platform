@@ -9,4 +9,8 @@ pub mod backtest_service;
 /// 行情事件消费服务 - 接收 MarketEvent
 pub mod market_event_consumer_service;
 
+/// 风控服务 - 风控检查用例
+pub mod risk_service;
+
 pub use market_event_consumer_service::MarketEventConsumerService;
+pub use risk_service::RiskService;

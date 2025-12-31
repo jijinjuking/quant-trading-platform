@@ -8,3 +8,6 @@ pub mod repository;
 
 /// 策略实现
 pub mod strategy;
+
+/// 风控实现
+pub mod risk;
