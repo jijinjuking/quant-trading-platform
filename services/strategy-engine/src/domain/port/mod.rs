@@ -17,6 +17,7 @@ pub mod strategy_port;
 /// 风控端口
 pub mod risk_port;
 
-pub use market_event_port::MarketEventPort;
-pub use strategy_port::StrategyPort;
-pub use risk_port::RiskPort;
+/// 策略状态端口（Redis 缓存）
+pub mod strategy_state_port;
+
+pub use strategy_state_port::{GridStateData, MeanReversionStateData, StrategyStatePort};

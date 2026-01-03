@@ -24,3 +24,15 @@ pub mod repository;
 
 /// 消息队列模块 - Kafka 消费者/生产者
 pub mod messaging;
+
+/// 执行模块 - 实现 ExecutionPort (v1 占位骨架)
+pub mod execution;
+
+/// 风控模块 - 下单前风控与限额校验
+pub mod risk;
+
+/// 策略模块 - 实现 StrategyPort
+pub mod strategy;
+
+/// 审计模块 - 实现 TradeAuditPort
+pub mod audit;

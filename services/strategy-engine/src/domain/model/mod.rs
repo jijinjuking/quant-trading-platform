@@ -1,7 +1,13 @@
-//! # 领域模型 (Domain Models)
+//! Domain models.
 
-/// 策略模型 - 策略实体
+/// Strategy entity model.
 pub mod strategy;
 
-/// 信号模型 - 交易信号
+/// Signal model.
 pub mod signal;
+
+/// Strategy configuration models.
+pub mod strategy_config;
+
+/// Market type definitions (Spot/Futures).
+pub mod market_type;

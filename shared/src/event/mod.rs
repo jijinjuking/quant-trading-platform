@@ -4,3 +4,4 @@ pub mod market_event;
 pub mod order_event;
 pub mod trade_event;
 pub mod risk_event;
+pub mod signal_event;

@@ -40,7 +40,8 @@ mod bootstrap;
 
 use anyhow::Result;           // 错误处理
 use std::net::SocketAddr;     // 网络地址
-use tracing::info;            // 日志
+use tracing::{error, info};            // 日志
+use tracing_subscriber::EnvFilter;
 
 // ============================================================================
 // 服务入口
@@ -49,11 +50,35 @@ use tracing::info;            // 日志
 /// 服务主入口函数
 #[tokio::main]
 async fn main() -> Result<()> {
-    // 初始化日志
-    tracing_subscriber::fmt::init();
+    // 加载 .env 文件
+    dotenvy::dotenv().ok();
+
+    // 初始化日志（默认 INFO 级别）
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new("info"))
+        )
+        .init();
     
     // 创建应用状态
     let state = state::AppState::new().await?;
+    let config = state.config.as_ref().clone();
+
+    let consumer = bootstrap::create_market_event_consumer(
+        config.kafka_brokers.clone(),
+        config.kafka_market_topic.clone(),
+        config.kafka_signal_topic.clone(),
+        config.kafka_consumer_group.clone(),
+        config.strategy_type.clone(),
+        config.grid_config.clone(),
+        config.mean_reversion_config.clone(),
+    )?;
+    tokio::spawn(async move {
+        if let Err(err) = consumer.run().await {
+            error!(error = %err, "market event consumer stopped");
+        }
+    });
     
     // 创建路由
     let app = interface::http::routes::create_router(state);

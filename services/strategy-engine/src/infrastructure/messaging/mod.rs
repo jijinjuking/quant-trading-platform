@@ -9,5 +9,6 @@ pub mod kafka_consumer;
 /// Mock 消费者 - 测试用
 pub mod mock_consumer;
 
+pub use kafka_producer::KafkaProducer;
 pub use kafka_consumer::KafkaConsumer;
 pub use mock_consumer::MockConsumer;

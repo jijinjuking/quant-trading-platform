@@ -1,8 +1,10 @@
-//! # 策略基础设施 (Strategy Infrastructure)
-//!
-//! 提供 StrategyPort 的具体实现。
+//! Strategy infrastructure adapters.
 
-/// Noop 策略 - 占位实现
+/// Noop strategy adapter.
 pub mod noop_strategy;
 
+/// Signal strategy adapter.
+pub mod signal_strategy;
+
 pub use noop_strategy::NoopStrategy;
+pub use signal_strategy::SignalStrategy;

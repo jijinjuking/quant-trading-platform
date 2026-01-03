@@ -1,29 +1,78 @@
-//! # Kafka 生产者 (Kafka Producer)
-//! 
-//! 实现交易信号的发布。
+//! Signal 的 Kafka 生产者适配器。
 
-use crate::domain::model::signal::Signal;
+use std::time::Duration;
+
+use anyhow::Context;
+use rdkafka::config::ClientConfig;
+use rdkafka::producer::{BaseProducer, BaseRecord, Producer};
+use tracing::error;
+
+use crate::domain::model::signal::{Signal, SignalType};
 use crate::domain::port::message_port::SignalMessagePort;
+use shared::event::signal_event::{SignalEvent, SignalType as EventSignalType};
 
-/// Kafka 生产者 - SignalMessagePort 的具体实现
-#[allow(dead_code)]
 pub struct KafkaProducer {
-    /// Kafka broker 地址
+    #[allow(dead_code)]
     brokers: String,
+    #[allow(dead_code)]
+    topic: String,
+    producer: BaseProducer,
 }
 
 impl KafkaProducer {
-    /// 创建 Kafka 生产者实例
-    #[allow(dead_code)]
-    pub fn new(brokers: String) -> Self {
-        Self { brokers }
+    pub fn new(brokers: String, topic: String) -> anyhow::Result<Self> {
+        let producer: BaseProducer = ClientConfig::new()
+            .set("bootstrap.servers", &brokers)
+            .set("message.timeout.ms", "5000")
+            .create()
+            .context("failed to create kafka producer")?;
+
+        Ok(Self {
+            brokers,
+            topic,
+            producer,
+        })
     }
 }
 
 impl SignalMessagePort for KafkaProducer {
-    /// 发布交易信号到 Kafka
-    fn publish_signal(&self, _signal: &Signal) -> bool {
-        // TODO: Domain → DTO → Kafka 消息
-        true
+    fn publish_signal(&self, signal: &Signal) -> bool {
+        let event = SignalEvent {
+            id: signal.id,
+            strategy_id: signal.strategy_id,
+            symbol: signal.symbol.clone(),
+            signal_type: match &signal.signal_type {
+                SignalType::Buy => EventSignalType::Buy,
+                SignalType::Sell => EventSignalType::Sell,
+                SignalType::Hold => EventSignalType::Hold,
+            },
+            price: signal.price,
+            quantity: signal.quantity,
+            confidence: signal.confidence,
+            created_at: signal.created_at,
+        };
+
+        let payload = match serde_json::to_string(&event) {
+            Ok(value) => value,
+            Err(err) => {
+                error!(error = %err, "serialize signal failed");
+                return false;
+            }
+        };
+
+        let record = BaseRecord::to(&self.topic)
+            .payload(&payload)
+            .key(&signal.symbol);
+
+        match self.producer.send(record) {
+            Ok(_) => {
+                let _ = self.producer.flush(Duration::from_secs(5));
+                true
+            }
+            Err((err, _)) => {
+                error!(error = %err, "kafka send failed");
+                false
+            }
+        }
     }
 }

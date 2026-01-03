@@ -8,3 +8,6 @@ pub mod strategies;
 
 /// 回测处理器
 pub mod backtest;
+
+/// 策略评估处理器
+pub mod evaluate;

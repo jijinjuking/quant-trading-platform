@@ -3,6 +3,7 @@
 //! 用于测试的 Mock 实现。
 
 use async_trait::async_trait;
+use anyhow::anyhow;
 use shared::event::market_event::MarketEvent;
 use crate::domain::port::market_event_port::MarketEventPort;
 
@@ -28,7 +29,7 @@ impl Default for MockConsumer {
 #[async_trait]
 impl MarketEventPort for MockConsumer {
     async fn next_event(&self) -> anyhow::Result<MarketEvent> {
-        // TODO: 返回预设的测试数据
-        todo!("实现 Mock 数据返回")
+        // Mock 场景：未配置数据时直接返回错误
+        Err(anyhow!("MockConsumer: no test data configured"))
     }
 }

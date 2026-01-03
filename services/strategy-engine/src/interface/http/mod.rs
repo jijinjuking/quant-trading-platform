@@ -7,3 +7,6 @@ pub mod handlers;
 
 /// 路由配置
 pub mod routes;
+
+/// 数据传输对象
+pub mod dto;

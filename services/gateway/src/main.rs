@@ -30,32 +30,48 @@ use std::net::SocketAddr;
 use tracing::info;
 
 /// 服务主入口函数
-///
-/// 初始化并启动 API Gateway 服务，执行以下步骤：
-/// 1. 初始化日志订阅器
-/// 2. 创建应用状态（包含配置信息）
-/// 3. 创建 HTTP 路由器
-/// 4. 绑定端口并启动服务
-///
-/// # 返回值
-/// - `Ok(())` - 服务正常退出
-/// - `Err(anyhow::Error)` - 启动或运行过程中发生错误
 #[tokio::main]
 async fn main() -> Result<()> {
     // 初始化日志系统
     tracing_subscriber::fmt::init();
     
-    // 创建应用状态，包含配置和共享资源
+    // 创建应用状态
     let state = state::AppState::new().await?;
+    
+    // 打印配置信息
+    println!("========================================");
+    println!("       API Gateway 启动中...");
+    println!("========================================");
+    println!("后端服务配置:");
+    println!("  - strategy-engine: {}", state.config.services.strategy_engine);
+    println!("  - trading-engine:  {}", state.config.services.trading_engine);
+    println!("  - market-data:     {}", state.config.services.market_data);
+    println!("========================================");
     
     // 创建 HTTP 路由器
     let app = interface::http::routes::create_router(state);
     
-    // 配置服务监听地址（0.0.0.0:8080）
-    let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
-    info!("Gateway listening on {}", addr);
+    // 从环境变量读取端口
+    let port: u16 = std::env::var("GATEWAY_PORT")
+        .unwrap_or_else(|_| "8080".to_string())
+        .parse()
+        .unwrap_or(8080);
     
-    // 绑定 TCP 监听器并启动 HTTP 服务
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
+    info!("Gateway listening on {}", addr);
+    println!("Gateway 监听地址: http://{}", addr);
+    println!("========================================");
+    println!("API 端点:");
+    println!("  GET  /health              - 健康检查");
+    println!("  GET  /api/v1/services     - 服务状态");
+    println!("  GET  /api/v1/strategies   - 策略列表");
+    println!("  POST /api/v1/strategies   - 创建策略");
+    println!("  GET  /api/v1/orders       - 订单列表");
+    println!("  POST /api/v1/orders       - 创建订单");
+    println!("  GET  /api/v1/positions    - 持仓列表");
+    println!("========================================");
+    
+    // 启动 HTTP 服务
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
     

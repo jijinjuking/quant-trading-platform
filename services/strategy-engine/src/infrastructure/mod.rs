@@ -11,3 +11,6 @@ pub mod strategy;
 
 /// 风控实现
 pub mod risk;
+
+/// 缓存 - Redis
+pub mod cache;

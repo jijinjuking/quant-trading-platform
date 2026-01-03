@@ -21,17 +21,30 @@ mod bootstrap;
 
 use anyhow::Result;
 use tracing::info;
+use tracing_subscriber::EnvFilter;
+use crate::state::MarketDataConfig;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // 初始化日志
-    tracing_subscriber::fmt::init();
+    // 加载 .env 文件
+    dotenvy::dotenv().ok();
+
+    // 初始化日志（默认 INFO 级别）
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new("info"))
+        )
+        .init();
 
     info!("Market Data Service starting...");
 
+    // 加载配置
+    let config = MarketDataConfig::from_env();
+
     // 构建服务（依赖注入在 bootstrap 中完成）
-    let service = bootstrap::build();
+    let service = bootstrap::build(config.clone())?;
 
     // 运行行情采集循环
-    service.run().await
+    service.run(config.symbols).await
 }

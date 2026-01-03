@@ -1,51 +1,66 @@
-//! # 成交模型 (Trade Model)
-//! 
-//! 定义订单成交记录的领域实体。
-//! 
-//! ## 说明
-//! Trade 是订单执行后产生的成交记录，
-//! 一个订单可能产生多笔成交（部分成交场景）。
+//! # 成交记录模型 (Trade Model)
+//!
+//! 定义成交记录的领域模型。
 
-// ============================================================================
-// 外部依赖导入
-// ============================================================================
+use chrono::{DateTime, Utc};
+use rust_decimal::Decimal;
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
-use chrono::{DateTime, Utc};  // 时间处理库 - 用于成交时间
-use rust_decimal::Decimal;     // 高精度十进制 - 用于价格和数量
-use serde::{Deserialize, Serialize};  // 序列化/反序列化
-use uuid::Uuid;                // UUID - 唯一标识符
+use super::order::OrderSide;
 
-// ============================================================================
-// 成交实体 (Trade Entity)
-// ============================================================================
-
-/// 成交记录实体 - 记录订单的实际成交信息
-/// 
-/// 当订单在交易所执行后，会产生一条或多条成交记录。
-/// 每条记录包含实际成交的价格、数量和手续费。
+/// 成交记录
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Trade {
-    /// 成交记录唯一标识符
+    /// 成交 ID
     pub id: Uuid,
-    
-    /// 关联的订单ID - 该成交属于哪个订单
+    /// 订单 ID
     pub order_id: Uuid,
-    
-    /// 交易所名称 - 成交发生的交易所
-    pub exchange: String,
-    
-    /// 交易对符号 - 如 "BTC/USDT"
+    /// 用户 ID
+    pub user_id: Uuid,
+    /// 交易对
     pub symbol: String,
-    
-    /// 成交价格 - 实际成交的价格
-    pub price: Decimal,
-    
-    /// 成交数量 - 实际成交的数量
+    /// 成交方向
+    pub side: OrderSide,
+    /// 成交数量
     pub quantity: Decimal,
-    
-    /// 手续费 - 交易所收取的费用
+    /// 成交价格
+    pub price: Decimal,
+    /// 手续费
     pub fee: Decimal,
-    
-    /// 成交时间 - 实际成交的时间（UTC）
-    pub executed_at: DateTime<Utc>,
+    /// 手续费币种
+    pub fee_currency: String,
+    /// 交易所成交 ID
+    pub exchange_trade_id: Option<String>,
+    /// 是否为 maker
+    pub is_maker: bool,
+    /// 成交时间
+    pub trade_time: DateTime<Utc>,
+}
+
+impl Trade {
+    /// 创建新成交记录
+    pub fn new(
+        order_id: Uuid,
+        user_id: Uuid,
+        symbol: String,
+        side: OrderSide,
+        quantity: Decimal,
+        price: Decimal,
+    ) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            order_id,
+            user_id,
+            symbol,
+            side,
+            quantity,
+            price,
+            fee: Decimal::ZERO,
+            fee_currency: "USDT".to_string(),
+            exchange_trade_id: None,
+            is_maker: false,
+            trade_time: Utc::now(),
+        }
+    }
 }

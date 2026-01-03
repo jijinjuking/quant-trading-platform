@@ -5,9 +5,12 @@
 //! ## 包含端口
 //! - `MarketExchangePort`: 行情交易所端口
 //! - `MessagePort`: 消息推送端口
+//! - `MarketStoragePort`: 行情存储端口
 
 pub mod market_exchange_port;
 pub mod message_port;
+pub mod storage_port;
 
 pub use market_exchange_port::MarketExchangePort;
 pub use message_port::MessagePort;
+pub use storage_port::MarketStoragePort;

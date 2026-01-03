@@ -12,9 +12,11 @@
 //! - ❌ 不在 service 内 new adapter
 //! - ❌ 不实现任何策略计算
 
+use std::time::Duration;
+
 use crate::domain::port::market_event_port::MarketEventPort;
 use crate::domain::port::strategy_port::StrategyPort;
-use tracing::info;
+use tracing::{error, info, warn};
 
 /// 行情事件消费服务
 pub struct MarketEventConsumerService<E, S>
@@ -50,18 +52,25 @@ where
         info!("MarketEventConsumerService started");
 
         loop {
-            // 1. 获取事件
-            let event = self.event_source.next_event().await?;
+            match self.event_source.next_event().await {
+                Ok(event) => {
+                    // 记录日志
+                    info!(
+                        symbol = %event.symbol,
+                        exchange = %event.exchange,
+                        "Received MarketEvent"
+                    );
 
-            // 2. 记录日志
-            info!(
-                symbol = %event.symbol,
-                exchange = %event.exchange,
-                "Received MarketEvent"
-            );
-
-            // 3. 转交给 StrategyPort
-            self.strategy.on_market_event(&event).await?;
+                    // 转交给 StrategyPort
+                    if let Err(err) = self.strategy.on_market_event(&event).await {
+                        warn!(error = %err, "strategy processing failed");
+                    }
+                }
+                Err(err) => {
+                    error!(error = %err, "market event source error");
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
+            }
         }
     }
 }

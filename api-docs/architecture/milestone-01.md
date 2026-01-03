@@ -1,0 +1,1 @@
+“Market / Strategy / Risk 的 LMS 骨架已完成，禁止在未引入 Execution 之前扩展 Risk 逻辑。”

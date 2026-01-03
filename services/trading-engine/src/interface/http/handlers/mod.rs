@@ -1,5 +1,5 @@
 //! # HTTP处理器模块
-//! 
+//!
 //! ## 功能层级: 【接口层 Interface】
 //! ## 职责: 包含所有HTTP请求处理函数
 
@@ -11,3 +11,6 @@ pub mod orders;
 
 /// 持仓处理器 - 处理持仓相关请求
 pub mod positions;
+
+/// 账户处理器 - 处理账户余额查询
+pub mod account;

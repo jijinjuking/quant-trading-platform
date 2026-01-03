@@ -4,6 +4,7 @@
 //! 
 //! ## API 端点
 //! - `GET /health`: 健康检查
+//! - `POST /api/v1/strategy/evaluate`: ⭐ 策略评估（核心）
 //! - `GET /api/v1/strategies`: 获取策略列表
 //! - `POST /api/v1/strategies`: 创建新策略
 //! - `POST /api/v1/backtest`: 运行回测
@@ -25,6 +26,8 @@ pub fn create_router(state: AppState) -> Router {
     Router::new()
         // 健康检查
         .route("/health", get(handlers::health::health_check))
+        // ⭐ 策略评估（核心 API，供 trading-engine 调用）
+        .route("/api/v1/strategy/evaluate", post(handlers::evaluate::evaluate_strategy))
         // 策略管理
         .route("/api/v1/strategies", get(handlers::strategies::list_strategies))
         .route("/api/v1/strategies", post(handlers::strategies::create_strategy))
