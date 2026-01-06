@@ -21,3 +21,6 @@ pub mod domain;
 
 /// 基础设施层 - 实现domain::port中的trait
 pub mod infrastructure;
+
+/// 依赖注入模块 - 组装应用层服务
+pub mod bootstrap;

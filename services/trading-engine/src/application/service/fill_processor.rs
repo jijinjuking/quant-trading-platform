@@ -172,6 +172,7 @@ impl FillProcessor {
         // 2. 创建并处理 ExecutionFill (全部成交)
         let fill = ExecutionFill::full(
             order_id.to_string(),
+            format!("sim_{}", uuid::Uuid::new_v4()), // 生成唯一 trade_id
             symbol.to_string(),
             side,
             quantity,
@@ -211,6 +212,7 @@ impl FillProcessor {
     ) {
         let fill = ExecutionFill::partial(
             order_id.to_string(),
+            format!("sim_{}", uuid::Uuid::new_v4()), // 生成唯一 trade_id
             symbol.to_string(),
             side,
             filled_qty,
@@ -323,6 +325,7 @@ mod tests {
         // 2. 部分成交 0.3
         let fill = ExecutionFill::partial(
             "order002".to_string(),
+            "trade002".to_string(),
             "BTCUSDT".to_string(),
             FillSide::Buy,
             dec("0.3"),      // 本次成交
@@ -407,6 +410,7 @@ mod tests {
         // 2. 全部成交
         let fill = ExecutionFill::full(
             "order004".to_string(),
+            "trade004".to_string(),
             "BTCUSDT".to_string(),
             FillSide::Buy,
             dec("0.5"),
@@ -440,6 +444,7 @@ mod tests {
         // 2. 部分成交 0.6
         let partial = ExecutionFill::partial(
             "order005".to_string(),
+            "trade005".to_string(),
             "BTCUSDT".to_string(),
             FillSide::Sell,
             dec("0.6"),

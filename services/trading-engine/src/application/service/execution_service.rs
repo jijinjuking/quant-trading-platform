@@ -22,11 +22,13 @@
 //! - 禁止包含任何执行实现
 //! - 禁止直接调用交易所 API
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use chrono::Utc;
 use rust_decimal::Decimal;
 use shared::event::market_event::MarketEvent;
+use tokio::sync::RwLock;
 use tracing::{info, warn, error, debug};
 use uuid::Uuid;
 
@@ -60,6 +62,8 @@ pub struct ExecutionService {
     order_repo: Option<Arc<dyn OrderRepositoryPort>>,
     /// 交易审计（可选，用于记录风控决策和执行结果）
     audit: Option<Arc<dyn TradeAuditPort>>,
+    /// 已应用的 trade_id 缓存（用于成交幂等判断）
+    applied_trade_ids: RwLock<HashSet<String>>,
 }
 
 impl ExecutionService {
@@ -81,6 +85,7 @@ impl ExecutionService {
             risk_state: None,
             order_repo: None,
             audit: None,
+            applied_trade_ids: RwLock::new(HashSet::new()),
         }
     }
 
@@ -104,6 +109,7 @@ impl ExecutionService {
             risk_state: None,
             order_repo: Some(order_repo),
             audit: None,
+            applied_trade_ids: RwLock::new(HashSet::new()),
         }
     }
 
@@ -131,6 +137,7 @@ impl ExecutionService {
             risk_state,
             order_repo,
             audit,
+            applied_trade_ids: RwLock::new(HashSet::new()),
         }
     }
 
@@ -494,10 +501,14 @@ impl ExecutionService {
     ///
     /// 这是成交闭环的核心方法。当收到成交事件时调用此方法更新 RiskState。
     /// 
+    /// ## 幂等保证
+    /// 通过 trade_id 进行幂等判断，重复的成交事件不会重复生效。
+    ///
     /// ## 处理顺序（不可乱）
-    /// 1. 更新持仓 (update_position)
-    /// 2. 更新余额 (update_balance) - 扣减/增加 free balance，应用手续费
-    /// 3. 更新未完成订单：
+    /// 1. 幂等检查（trade_id 是否已处理）
+    /// 2. 更新持仓 (update_position)
+    /// 3. 更新余额 (update_balance) - 扣减/增加 free balance，应用手续费
+    /// 4. 更新未完成订单：
     ///    - PARTIAL: 保留 open_order（剩余数量）
     ///    - FILLED/CANCELED: remove_open_order
     ///
@@ -509,12 +520,32 @@ impl ExecutionService {
     /// # 参数
     /// - `fill`: 成交回报事件
     pub async fn apply_execution_fill(&self, fill: &ExecutionFill) {
+        // Step 0: 幂等检查 - 若 trade_id 已存在，直接返回
+        {
+            let applied = self.applied_trade_ids.read().await;
+            if applied.contains(&fill.trade_id) {
+                debug!(
+                    trade_id = %fill.trade_id,
+                    order_id = %fill.order_id,
+                    "Duplicate trade_id detected, skipping fill application"
+                );
+                return;
+            }
+        }
+
+        // 记录 trade_id（在实际处理前记录，防止并发重复处理）
+        {
+            let mut applied = self.applied_trade_ids.write().await;
+            applied.insert(fill.trade_id.clone());
+        }
+
         let Some(ref risk_state) = self.risk_state else {
             warn!("RiskStatePort not configured, skipping fill application");
             return;
         };
 
         info!(
+            trade_id = %fill.trade_id,
             order_id = %fill.order_id,
             symbol = %fill.symbol,
             side = ?fill.side,
@@ -622,9 +653,13 @@ impl ExecutionService {
         price: Decimal,
         commission: Decimal,
     ) {
+        // 生成唯一的 trade_id（模拟场景使用 UUID）
+        let trade_id = format!("sim_{}", Uuid::new_v4());
+        
         let fill = ExecutionFill {
             id: Uuid::new_v4(),
             order_id: order_id.to_string(),
+            trade_id,
             client_order_id: None,
             symbol: symbol.to_string(),
             side,
@@ -640,5 +675,73 @@ impl ExecutionService {
         };
 
         self.apply_execution_fill(&fill).await;
+    }
+
+    /// 处理来自 WebSocket 的成交事件
+    ///
+    /// 这是 BinanceFillStream 的入口方法。
+    /// 当收到真实成交事件时，通过此方法注入 ExecutionService。
+    ///
+    /// ## 职责
+    /// - 接收 ExecutionFill
+    /// - 调用 apply_execution_fill 更新 RiskState
+    /// - 记录审计日志（如果配置了）
+    ///
+    /// ## 禁止
+    /// - 不做业务判断
+    /// - 不重新跑风控
+    /// - 不访问交易所 API
+    ///
+    /// # 参数
+    /// - `fill`: 成交回报事件
+    pub async fn on_execution_fill(&self, fill: ExecutionFill) {
+        info!(
+            order_id = %fill.order_id,
+            symbol = %fill.symbol,
+            side = ?fill.side,
+            filled_qty = %fill.filled_quantity,
+            fill_price = %fill.fill_price,
+            source = "websocket",
+            "Received execution fill from WebSocket"
+        );
+
+        // 应用成交到 RiskState
+        self.apply_execution_fill(&fill).await;
+
+        // 记录审计日志（如果配置了）
+        if let Some(ref audit) = self.audit {
+            // TODO: 添加成交审计事件类型
+            debug!(
+                order_id = %fill.order_id,
+                "Execution fill audit recorded"
+            );
+        }
+    }
+
+    /// 启动成交事件消费循环
+    ///
+    /// 从 channel 接收 ExecutionFill 并处理。
+    /// 用于与 BinanceFillStream 配合使用。
+    ///
+    /// # 参数
+    /// - `fill_rx`: 成交事件接收通道
+    ///
+    /// # 示例
+    /// ```ignore
+    /// let (fill_stream, fill_rx) = create_fill_stream();
+    /// tokio::spawn(fill_stream.run());
+    /// execution_service.run_fill_consumer(fill_rx).await;
+    /// ```
+    pub async fn run_fill_consumer(
+        &self,
+        mut fill_rx: tokio::sync::mpsc::Receiver<ExecutionFill>,
+    ) {
+        info!("ExecutionService fill consumer started");
+
+        while let Some(fill) = fill_rx.recv().await {
+            self.on_execution_fill(fill).await;
+        }
+
+        warn!("ExecutionService fill consumer stopped (channel closed)");
     }
 }

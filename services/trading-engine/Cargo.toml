@@ -23,6 +23,11 @@ sha2 = "0.10"
 hex = "0.4"
 parking_lot = "0.12"
 
+# WebSocket (for Binance User Data Stream)
+tokio-tungstenite = { version = "0.21", features = ["native-tls"] }
+futures-util = "0.3"
+url = "2"
+
 # 共享内核
 shared = { path = "../../shared" }
 

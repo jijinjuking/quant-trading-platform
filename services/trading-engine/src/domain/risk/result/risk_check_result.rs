@@ -114,6 +114,16 @@ pub enum RiskRejectReason {
         max_allowed: Decimal,
     },
 
+    /// 保证金率过低（v1.1 安全修补 - 强平前安全风控）
+    ///
+    /// 当账户保证金率低于临界阈值时，禁止新开仓，只允许减仓/平仓
+    MarginRatioTooLow {
+        /// 当前保证金率
+        current_ratio: Decimal,
+        /// 临界阈值
+        critical_threshold: Decimal,
+    },
+
     /// 自定义拒绝原因（用于扩展）
     Custom {
         /// 规则名称
@@ -138,6 +148,7 @@ impl RiskRejectReason {
             RiskRejectReason::DrawdownExceeded { .. } => "DRAWDOWN_EXCEEDED",
             RiskRejectReason::CooldownNotExpired { .. } => "COOLDOWN_NOT_EXPIRED",
             RiskRejectReason::MarketOrderNotionalExceeded { .. } => "MARKET_ORDER_NOTIONAL_EXCEEDED",
+            RiskRejectReason::MarginRatioTooLow { .. } => "MARGIN_RATIO_TOO_LOW",
             RiskRejectReason::Custom { .. } => "CUSTOM_REJECT",
         }
     }
@@ -203,6 +214,12 @@ impl RiskRejectReason {
                 format!(
                     "市价单估算名义金额超限: 交易对={}, 估算金额={}, 最大允许={}",
                     symbol, estimated_notional, max_allowed
+                )
+            }
+            RiskRejectReason::MarginRatioTooLow { current_ratio, critical_threshold } => {
+                format!(
+                    "保证金率过低，禁止开仓: 当前={}, 临界阈值={}",
+                    current_ratio, critical_threshold
                 )
             }
             RiskRejectReason::Custom { rule_name, message } => {

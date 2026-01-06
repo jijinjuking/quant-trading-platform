@@ -132,6 +132,11 @@ impl OrderRiskAdapter {
             return result;
         }
 
+        // 规则 E: 强平前安全风控 (v1.1 安全修补)
+        if let result @ RiskCheckResult::Rejected(_) = self.check_margin_safety(intent, &snapshot) {
+            return result;
+        }
+
         // 频率限制
         if let result @ RiskCheckResult::Rejected(_) = self.check_order_frequency(intent) {
             return result;
@@ -327,6 +332,82 @@ impl OrderRiskAdapter {
             }
         }
 
+        RiskCheckResult::passed()
+    }
+
+    /// 规则 E: 强平前安全风控 (v1.1 安全修补)
+    ///
+    /// ⚠️ v1.1 语义说明：
+    /// - 当保证金率低于临界阈值时，禁止新开仓，允许减仓/平仓
+    /// - v1 使用近似计算: margin_ratio ≈ free_balance / total_position_value
+    /// - 如果没有持仓，跳过此检查
+    /// - 只对开仓方向的订单进行检查
+    ///
+    /// ## 开仓判断逻辑
+    /// - 当前无持仓: Buy = 开仓, Sell = 开仓
+    /// - 当前多头持仓: Buy = 加仓(开仓), Sell = 减仓(允许)
+    /// - 当前空头持仓: Buy = 减仓(允许), Sell = 加仓(开仓)
+    fn check_margin_safety(&self, intent: &OrderIntent, snapshot: &RiskStateSnapshot) -> RiskCheckResult {
+        let limits = &self.config.limits;
+
+        // 如果临界阈值为 0，跳过检查
+        if limits.critical_margin_ratio <= Decimal::ZERO {
+            return RiskCheckResult::passed();
+        }
+
+        // 计算总持仓价值（使用 entry_price 近似）
+        let total_position_value: Decimal = snapshot
+            .positions
+            .iter()
+            .map(|p| p.quantity.abs() * p.entry_price)
+            .sum();
+
+        // 如果没有持仓，跳过检查（无强平风险）
+        if total_position_value <= Decimal::ZERO {
+            return RiskCheckResult::passed();
+        }
+
+        // 获取可用余额
+        let free_balance = snapshot.get_free_balance(&self.config.quote_asset);
+
+        // 计算近似保证金率
+        // margin_ratio = free_balance / total_position_value
+        let margin_ratio = if total_position_value > Decimal::ZERO {
+            free_balance / total_position_value
+        } else {
+            Decimal::new(1, 0) // 无持仓时，保证金率视为 100%
+        };
+
+        // 如果保证金率高于临界阈值，通过
+        if margin_ratio >= limits.critical_margin_ratio {
+            return RiskCheckResult::passed();
+        }
+
+        // 保证金率过低，检查是否为开仓操作
+        // 获取当前交易对的持仓
+        let current_position = snapshot.get_position_qty(&intent.symbol);
+
+        // 判断是否为开仓操作
+        let is_opening_position = match intent.side {
+            OrderSide::Buy => {
+                // 买入: 如果当前无持仓或多头，则为开仓/加仓
+                current_position >= Decimal::ZERO
+            }
+            OrderSide::Sell => {
+                // 卖出: 如果当前无持仓或空头，则为开仓/加仓
+                current_position <= Decimal::ZERO
+            }
+        };
+
+        // 如果是开仓操作，拒绝
+        if is_opening_position {
+            return RiskCheckResult::rejected(RiskRejectReason::MarginRatioTooLow {
+                current_ratio: margin_ratio,
+                critical_threshold: limits.critical_margin_ratio,
+            });
+        }
+
+        // 减仓/平仓操作，允许通过
         RiskCheckResult::passed()
     }
 
@@ -579,11 +660,13 @@ mod tests {
             limits: RiskLimits {
                 max_position_per_symbol: dec("1"),
                 max_order_notional: dec("100000"),
+                critical_margin_ratio: dec("0"), // 禁用保证金率检查
                 ..Default::default()
             },
             ..Default::default()
         };
         let (adapter, risk_state) = create_adapter(config);
+        risk_state.set_balance("USDT", dec("100000"), dec("0")); // 设置足够余额
         risk_state.set_position("BTCUSDT", dec("0.5"), dec("50000"));
         let intent = create_intent("BTCUSDT", OrderSide::Buy, "0.3", Some("50000"));
         let result = adapter.check(&intent).await;
@@ -759,5 +842,110 @@ mod tests {
         let config = OrderRiskConfig::from_env();
         assert!(config.trading_enabled);
         assert!(config.limits.min_order_qty > Decimal::ZERO);
+    }
+
+    // === 规则 E: 强平前安全风控测试 (v1.1 安全修补) ===
+
+    #[tokio::test]
+    async fn test_margin_safety_pass_no_position() {
+        // 无持仓时，跳过保证金率检查
+        let config = OrderRiskConfig {
+            limits: RiskLimits {
+                critical_margin_ratio: dec("0.1"),
+                max_order_notional: dec("100000"),
+                max_balance_usage_ratio: dec("1.0"), // 允许使用 100% 余额
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let (adapter, risk_state) = create_adapter(config);
+        risk_state.set_balance("USDT", dec("10000"), dec("0")); // 足够的余额
+        // 无持仓
+        let intent = create_intent("BTCUSDT", OrderSide::Buy, "0.01", Some("50000")); // 500 USDT
+        assert!(adapter.check(&intent).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_margin_safety_pass_high_margin_ratio() {
+        // 保证金率高于临界阈值，允许开仓
+        let config = OrderRiskConfig {
+            limits: RiskLimits {
+                critical_margin_ratio: dec("0.1"), // 10%
+                max_order_notional: dec("100000"),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let (adapter, risk_state) = create_adapter(config);
+        // 余额 1000 USDT，持仓价值 5000 USDT，保证金率 = 1000/5000 = 20% > 10%
+        risk_state.set_balance("USDT", dec("1000"), dec("0"));
+        risk_state.set_position("BTCUSDT", dec("0.1"), dec("50000")); // 0.1 * 50000 = 5000
+        let intent = create_intent("BTCUSDT", OrderSide::Buy, "0.01", Some("50000"));
+        assert!(adapter.check(&intent).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_margin_safety_reject_low_margin_ratio_buy() {
+        // 保证金率低于临界阈值，禁止开仓（买入加仓）
+        let config = OrderRiskConfig {
+            limits: RiskLimits {
+                critical_margin_ratio: dec("0.1"), // 10%
+                max_order_notional: dec("100000"),
+                max_balance_usage_ratio: dec("1.0"), // 允许使用 100% 余额
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let (adapter, risk_state) = create_adapter(config);
+        // 余额 100 USDT，持仓价值 5000 USDT，保证金率 = 100/5000 = 2% < 10%
+        // 订单金额 = 0.01 * 50000 = 500 USDT，需要余额 >= 500
+        risk_state.set_balance("USDT", dec("600"), dec("0")); // 足够支付订单，但保证金率仍然低
+        risk_state.set_position("BTCUSDT", dec("0.1"), dec("50000")); // 0.1 * 50000 = 5000
+        // 保证金率 = 600 / 5000 = 12% > 10%，需要调整使其低于阈值
+        // 改为: 余额 400 USDT，持仓价值 5000 USDT，保证金率 = 400/5000 = 8% < 10%
+        risk_state.set_balance("USDT", dec("400"), dec("0"));
+        let intent = create_intent("BTCUSDT", OrderSide::Buy, "0.001", Some("50000")); // 50 USDT 订单
+        let result = adapter.check(&intent).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("MARGIN_RATIO_TOO_LOW"));
+    }
+
+    #[tokio::test]
+    async fn test_margin_safety_allow_close_position() {
+        // 保证金率低于临界阈值，但允许减仓/平仓
+        let config = OrderRiskConfig {
+            limits: RiskLimits {
+                critical_margin_ratio: dec("0.1"), // 10%
+                max_order_notional: dec("100000"),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let (adapter, risk_state) = create_adapter(config);
+        // 余额 100 USDT，持仓价值 5000 USDT，保证金率 = 100/5000 = 2% < 10%
+        risk_state.set_balance("USDT", dec("100"), dec("0"));
+        risk_state.set_position("BTCUSDT", dec("0.1"), dec("50000")); // 多头持仓
+        // 卖出减仓，应该允许
+        let intent = create_intent("BTCUSDT", OrderSide::Sell, "0.05", Some("50000"));
+        assert!(adapter.check(&intent).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_margin_safety_disabled_when_threshold_zero() {
+        // 临界阈值为 0 时，跳过检查
+        let config = OrderRiskConfig {
+            limits: RiskLimits {
+                critical_margin_ratio: dec("0"), // 禁用
+                max_order_notional: dec("100000"),
+                max_balance_usage_ratio: dec("1.0"), // 允许使用 100% 余额
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let (adapter, risk_state) = create_adapter(config);
+        risk_state.set_balance("USDT", dec("1000"), dec("0")); // 足够的余额
+        risk_state.set_position("BTCUSDT", dec("1"), dec("50000")); // 大持仓
+        let intent = create_intent("BTCUSDT", OrderSide::Buy, "0.01", Some("50000")); // 500 USDT
+        assert!(adapter.check(&intent).await.is_ok());
     }
 }

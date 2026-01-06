@@ -185,13 +185,21 @@ impl RiskStateInitializer {
 
 /// 创建已初始化的 RiskStatePort
 ///
-/// 便捷函数：创建 InMemoryRiskStateAdapter 并从交易所同步初始状态。
+/// # ⚠️ 已废弃 (v1.1 集成重构)
+/// 此函数已废弃，请使用以下方式：
+/// 1. 使用 `bootstrap::create_risk_state()` 创建空状态
+/// 2. 使用 `RiskStateCoordinator.rebuild(Startup)` 初始化
 ///
 /// # 参数
 /// - `exchange`: 交易所查询端口（可选，None 则跳过初始化）
 ///
 /// # 返回
 /// - 已初始化的 RiskStatePort
+#[deprecated(
+    since = "1.1.0",
+    note = "使用 RiskStateCoordinator.rebuild() 替代"
+)]
+#[allow(dead_code)]
 pub async fn create_initialized_risk_state(
     exchange: Option<&dyn ExchangeQueryPort>,
 ) -> Arc<dyn RiskStatePort> {

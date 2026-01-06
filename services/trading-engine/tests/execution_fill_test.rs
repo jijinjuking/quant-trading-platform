@@ -274,6 +274,7 @@ async fn test_apply_execution_fill_directly() {
     let fill = ExecutionFill {
         id: Uuid::new_v4(),
         order_id: "test_order_001".to_string(),
+        trade_id: "trade_001".to_string(),
         client_order_id: None,
         symbol: "ETHUSDT".to_string(),
         side: FillSide::Buy,
@@ -344,6 +345,7 @@ async fn test_sell_increases_balance() {
     let fill = ExecutionFill {
         id: Uuid::new_v4(),
         order_id: "sell_order_001".to_string(),
+        trade_id: "trade_sell_001".to_string(),
         client_order_id: None,
         symbol: "BTCUSDT".to_string(),
         side: FillSide::Sell,
@@ -374,4 +376,100 @@ async fn test_sell_increases_balance() {
     assert_eq!(snapshot.open_orders.len(), 0);
 
     println!("✅ 测试通过: 卖出后余额正确增加");
+}
+
+// ========== 测试 5: 重复成交不应重复生效（幂等测试） ==========
+
+#[tokio::test]
+async fn test_duplicate_fill_should_not_apply_twice() {
+    // 1. 初始化 RiskState（10000 USDT，空仓）
+    let risk_state = Arc::new(InMemoryRiskStateAdapter::new());
+    risk_state.set_balance("USDT", dec("10000"), dec("0"));
+
+    // 2. 创建 ExecutionService
+    let strategy = Arc::new(MockStrategy::no_signal());
+    let config = OrderRiskConfig::default();
+    let risk_adapter = Arc::new(OrderRiskAdapter::new(config, risk_state.clone()));
+    let execution = Arc::new(MockExecution::success());
+
+    let service = ExecutionService::with_full_config(
+        strategy,
+        risk_adapter,
+        execution,
+        Some(risk_state.clone()),
+        None,
+        None,
+    );
+
+    // 3. 先添加一个 open_order
+    risk_state.add_open_order(trading_engine::domain::port::risk_state_port::RiskOpenOrder {
+        order_id: "dup_order_001".to_string(),
+        symbol: "BTCUSDT".to_string(),
+        side: "BUY".to_string(),
+        quantity: dec("0.1"),
+        price: dec("50000"),
+        created_at: chrono::Utc::now().timestamp_millis(),
+    }).await;
+
+    // 4. 创建两个相同 trade_id 的成交事件
+    let fill1 = ExecutionFill {
+        id: Uuid::new_v4(),
+        order_id: "dup_order_001".to_string(),
+        trade_id: "same_trade_id_123".to_string(), // 相同的 trade_id
+        client_order_id: None,
+        symbol: "BTCUSDT".to_string(),
+        side: FillSide::Buy,
+        fill_type: FillType::Full,
+        filled_quantity: dec("0.1"),
+        fill_price: dec("50000"),
+        cumulative_quantity: dec("0.1"),
+        original_quantity: dec("0.1"),
+        commission: dec("5"), // 0.1% of 5000
+        commission_asset: "USDT".to_string(),
+        fill_time: chrono::Utc::now(),
+        created_at: chrono::Utc::now(),
+    };
+
+    let fill2 = ExecutionFill {
+        id: Uuid::new_v4(),
+        order_id: "dup_order_001".to_string(),
+        trade_id: "same_trade_id_123".to_string(), // 相同的 trade_id
+        client_order_id: None,
+        symbol: "BTCUSDT".to_string(),
+        side: FillSide::Buy,
+        fill_type: FillType::Full,
+        filled_quantity: dec("0.1"),
+        fill_price: dec("50000"),
+        cumulative_quantity: dec("0.1"),
+        original_quantity: dec("0.1"),
+        commission: dec("5"),
+        commission_asset: "USDT".to_string(),
+        fill_time: chrono::Utc::now(),
+        created_at: chrono::Utc::now(),
+    };
+
+    // 5. 调用 apply_execution_fill 两次
+    service.apply_execution_fill(&fill1).await;
+    service.apply_execution_fill(&fill2).await;
+
+    // 6. 验证：仓位只变化一次
+    let snapshot = risk_state.get_snapshot().await.unwrap();
+    
+    // 持仓应该是 0.1 BTC（不是 0.2）
+    let position = snapshot.get_position_qty("BTCUSDT");
+    assert_eq!(position, dec("0.1"), 
+        "Position should be 0.1 BTC (not 0.2), duplicate fill should be ignored");
+
+    // 余额应该是 10000 - 5000 - 5 = 4995 USDT（不是 -5 - 5000 - 5 = -10）
+    let balance = snapshot.get_free_balance("USDT");
+    assert_eq!(balance, dec("4995"), 
+        "Balance should be 4995 USDT, duplicate fill should be ignored");
+
+    // open_orders 应该为空（第一次成交已移除）
+    assert_eq!(snapshot.open_orders.len(), 0, 
+        "Open orders should be empty after first fill");
+
+    println!("✅ 测试通过: 重复成交（相同 trade_id）不会重复生效");
+    println!("   - 仓位: {} (预期 0.1)", position);
+    println!("   - 余额: {} (预期 4995)", balance);
 }

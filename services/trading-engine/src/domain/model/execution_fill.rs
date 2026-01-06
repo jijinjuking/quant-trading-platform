@@ -25,6 +25,8 @@ pub struct ExecutionFill {
     pub id: Uuid,
     /// 订单 ID（交易所返回的）
     pub order_id: String,
+    /// 成交 ID（对应 Binance executionReport 的 t 字段，用于幂等判断）
+    pub trade_id: String,
     /// 客户端订单 ID（可选）
     pub client_order_id: Option<String>,
     /// 交易对
@@ -92,6 +94,7 @@ impl ExecutionFill {
     /// 创建部分成交事件
     pub fn partial(
         order_id: String,
+        trade_id: String,
         symbol: String,
         side: FillSide,
         filled_quantity: Decimal,
@@ -102,6 +105,7 @@ impl ExecutionFill {
         Self {
             id: Uuid::new_v4(),
             order_id,
+            trade_id,
             client_order_id: None,
             symbol,
             side,
@@ -120,6 +124,7 @@ impl ExecutionFill {
     /// 创建全部成交事件
     pub fn full(
         order_id: String,
+        trade_id: String,
         symbol: String,
         side: FillSide,
         filled_quantity: Decimal,
@@ -128,6 +133,7 @@ impl ExecutionFill {
         Self {
             id: Uuid::new_v4(),
             order_id,
+            trade_id,
             client_order_id: None,
             symbol,
             side,
@@ -326,6 +332,7 @@ mod tests {
     fn test_execution_fill_partial() {
         let fill = ExecutionFill::partial(
             "order123".to_string(),
+            "trade123".to_string(),
             "BTCUSDT".to_string(),
             FillSide::Buy,
             dec("0.1"),      // 本次成交
@@ -345,6 +352,7 @@ mod tests {
     fn test_execution_fill_full() {
         let fill = ExecutionFill::full(
             "order456".to_string(),
+            "trade456".to_string(),
             "ETHUSDT".to_string(),
             FillSide::Sell,
             dec("2.0"),
