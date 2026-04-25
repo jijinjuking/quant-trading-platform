@@ -17,16 +17,12 @@
 //! - ❌ 不做策略逻辑
 
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use anyhow::{Context, Result};
 use chrono::{TimeZone, Utc};
 use futures_util::{SinkExt, StreamExt};
-use hmac::{Hmac, Mac};
 use reqwest::Client;
 use rust_decimal::Decimal;
 use serde::Deserialize;
-use sha2::Sha256;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, RwLock};
 use tokio_tungstenite::{
@@ -36,16 +32,16 @@ use tokio_tungstenite::{
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
-use crate::domain::model::execution_fill::{ExecutionFill, FillSide, FillType};
-
-type HmacSha256 = Hmac<Sha256>;
+use crate::domain::model::execution_fill::{
+    CancelReason, ExecutionFill, ExecutionStreamEvent, FillSide, FillType, OrderCanceled,
+};
 
 /// 币安 User Data Stream 执行报告消息
 #[derive(Debug, Deserialize)]
 struct BinanceExecutionReport {
     /// 事件类型 (executionReport)
     #[serde(rename = "e")]
-    event_type: String,
+    _event_type: String,
     /// 事件时间
     #[serde(rename = "E")]
     _event_time: i64,
@@ -137,7 +133,7 @@ impl FillStreamConfig {
 pub struct BinanceFillStream {
     config: FillStreamConfig,
     /// 成交事件发送通道
-    fill_tx: mpsc::Sender<ExecutionFill>,
+    fill_tx: mpsc::Sender<ExecutionStreamEvent>,
     /// Listen Key（用于 User Data Stream）
     listen_key: Arc<RwLock<Option<String>>>,
     /// HTTP 客户端
@@ -152,7 +148,7 @@ impl BinanceFillStream {
     /// # 参数
     /// - `config`: 配置
     /// - `fill_tx`: 成交事件发送通道
-    pub fn new(config: FillStreamConfig, fill_tx: mpsc::Sender<ExecutionFill>) -> Self {
+    pub fn new(config: FillStreamConfig, fill_tx: mpsc::Sender<ExecutionStreamEvent>) -> Self {
         Self {
             config,
             fill_tx,
@@ -163,7 +159,7 @@ impl BinanceFillStream {
     }
 
     /// 从环境变量创建
-    pub fn from_env(fill_tx: mpsc::Sender<ExecutionFill>) -> Self {
+    pub fn from_env(fill_tx: mpsc::Sender<ExecutionStreamEvent>) -> Self {
         Self::new(FillStreamConfig::from_env(), fill_tx)
     }
 
@@ -279,6 +275,7 @@ impl BinanceFillStream {
     }
 
     /// 保活 Listen Key（每 30 分钟 PUT 一次）
+    #[allow(dead_code)]
     async fn keep_alive_listen_key(&self) -> Result<()> {
         let listen_key = {
             let guard = self.listen_key.read().await;
@@ -443,38 +440,55 @@ impl BinanceFillStream {
             }
         };
 
-        // 只处理成交相关状态
-        // TRADE = 有成交发生
-        // FILLED = 完全成交
-        // PARTIALLY_FILLED = 部分成交
         let order_status = report.order_status.as_str();
-        if order_status != "TRADE" && order_status != "FILLED" && order_status != "PARTIALLY_FILLED"
-        {
-            debug!(
-                "忽略非成交状态: order_id={}, status={}",
-                report.order_id, order_status
+        if order_status == "TRADE" || order_status == "FILLED" || order_status == "PARTIALLY_FILLED" {
+            let fill = match self.convert_to_fill(&report) {
+                Some(f) => f,
+                None => {
+                    error!("转换 ExecutionFill 失败: {:?}", report);
+                    return;
+                }
+            };
+
+            info!(
+                "收到成交事件: order_id={}, symbol={}, side={:?}, qty={}, price={}",
+                fill.order_id, fill.symbol, fill.side, fill.filled_quantity, fill.fill_price
             );
+
+            if let Err(e) = self.fill_tx.send(ExecutionStreamEvent::Fill(fill)).await {
+                error!("发送成交事件失败: {}", e);
+            }
             return;
         }
 
-        // 转换为 ExecutionFill
-        let fill = match self.convert_to_fill(&report) {
-            Some(f) => f,
-            None => {
-                error!("转换 ExecutionFill 失败: {:?}", report);
-                return;
+        if order_status == "CANCELED" || order_status == "EXPIRED" || order_status == "REJECTED" {
+            let canceled = match self.convert_to_canceled(&report) {
+                Some(v) => v,
+                None => {
+                    error!("转换 OrderCanceled 失败: {:?}", report);
+                    return;
+                }
+            };
+
+            info!(
+                "收到撤单事件: order_id={}, symbol={}, filled_qty={}, reason={:?}",
+                canceled.order_id, canceled.symbol, canceled.filled_quantity, canceled.reason
+            );
+
+            if let Err(e) = self
+                .fill_tx
+                .send(ExecutionStreamEvent::Canceled(canceled))
+                .await
+            {
+                error!("发送撤单事件失败: {}", e);
             }
-        };
-
-        info!(
-            "收到成交事件: order_id={}, symbol={}, side={:?}, qty={}, price={}",
-            fill.order_id, fill.symbol, fill.side, fill.filled_quantity, fill.fill_price
-        );
-
-        // 发送到 channel
-        if let Err(e) = self.fill_tx.send(fill).await {
-            error!("发送成交事件失败: {}", e);
+            return;
         }
+
+        debug!(
+            "忽略非成交状态: order_id={}, status={}",
+            report.order_id, order_status
+        );
     }
 
     /// 将币安执行报告转换为 ExecutionFill
@@ -523,14 +537,36 @@ impl BinanceFillStream {
             created_at: Utc::now(),
         })
     }
+
+    fn convert_to_canceled(&self, report: &BinanceExecutionReport) -> Option<OrderCanceled> {
+        let side = FillSide::from_str(&report.side)?;
+        let original_qty: Decimal = report.original_qty.parse().ok()?;
+        let filled_qty: Decimal = report.cumulative_qty.parse().ok()?;
+        let reason = match report.order_status.as_str() {
+            "EXPIRED" => CancelReason::Expired,
+            "REJECTED" => CancelReason::ExchangeRejected,
+            _ => CancelReason::UserRequested,
+        };
+
+        Some(OrderCanceled {
+            id: Uuid::new_v4(),
+            order_id: report.order_id.to_string(),
+            symbol: report.symbol.clone(),
+            side,
+            original_quantity: original_qty,
+            filled_quantity: filled_qty,
+            reason,
+            canceled_at: Utc::now(),
+        })
+    }
 }
 
 /// 创建成交事件流和接收通道
 ///
 /// # 返回
-/// - `(BinanceFillStream, mpsc::Receiver<ExecutionFill>)`
-pub fn create_fill_stream() -> (BinanceFillStream, mpsc::Receiver<ExecutionFill>) {
-    let (tx, rx) = mpsc::channel::<ExecutionFill>(1000);
+/// - `(BinanceFillStream, mpsc::Receiver<ExecutionStreamEvent>)`
+pub fn create_fill_stream() -> (BinanceFillStream, mpsc::Receiver<ExecutionStreamEvent>) {
+    let (tx, rx) = mpsc::channel::<ExecutionStreamEvent>(1000);
     let stream = BinanceFillStream::from_env(tx);
     (stream, rx)
 }
@@ -570,7 +606,7 @@ mod tests {
         );
 
         let report = BinanceExecutionReport {
-            event_type: "executionReport".to_string(),
+            _event_type: "executionReport".to_string(),
             _event_time: 1704067200000,
             symbol: "BTCUSDT".to_string(),
             client_order_id: "client123".to_string(),
@@ -614,7 +650,7 @@ mod tests {
         );
 
         let report = BinanceExecutionReport {
-            event_type: "executionReport".to_string(),
+            _event_type: "executionReport".to_string(),
             _event_time: 1704067200000,
             symbol: "ETHUSDT".to_string(),
             client_order_id: "client456".to_string(),

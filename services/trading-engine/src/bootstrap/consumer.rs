@@ -21,7 +21,7 @@ use crate::domain::port::risk_state_port::RiskStatePort;
 use crate::domain::port::trade_audit_port::TradeAuditPort;
 use crate::infrastructure::messaging::MarketEventKafkaConsumer;
 use crate::infrastructure::repository::PostgresOrderRepository;
-use crate::infrastructure::audit::NoopAuditAdapter;
+use crate::infrastructure::audit::PostgresTradeAuditAdapter;
 use crate::application::service::execution_service::ExecutionService;
 use crate::application::service::market_event_consumer_service::MarketEventConsumerService;
 
@@ -128,36 +128,48 @@ pub async fn create_market_event_consumer_with_state(
     )?;
     let execution = create_order_execution_port(inner_execution);
 
-    // 5. 创建审计端口（v1 使用 Noop，只打日志）
-    let audit: Arc<dyn TradeAuditPort> = Arc::new(NoopAuditAdapter::new());
-    tracing::info!("交易审计已启用 (noop mode)");
-
-    // 6. 使用外部传入的 RiskState（v1.1 集成重构）
+    // 5. 使用外部传入的 RiskState（v1.1 集成重构）
     // 不再内部创建，确保整个系统使用同一个实例
 
-    // 7. 创建 ExecutionService（核心调度）
+    // 6. 创建 ExecutionService（核心调度）
     let execution_service = if config.storage_enabled {
         // 尝试创建数据库连接池
         match create_postgres_pool().await {
             Ok(pool) => {
-                let order_repo: Arc<dyn OrderRepositoryPort> = 
-                    Arc::new(PostgresOrderRepository::new(pool));
-                tracing::info!("订单存储已启用");
+                let order_repo: Arc<dyn OrderRepositoryPort> =
+                    Arc::new(PostgresOrderRepository::new(pool.clone()));
+                let audit: Arc<dyn TradeAuditPort> = Arc::new(PostgresTradeAuditAdapter::new(pool));
+                tracing::info!("订单存储与交易审计已启用 (postgres)");
                 Arc::new(ExecutionService::with_full_config(
-                    strategy, risk, execution, Some(risk_state), Some(order_repo), Some(audit),
+                    strategy,
+                    risk,
+                    execution,
+                    Some(risk_state),
+                    Some(order_repo),
+                    Some(audit),
                 ))
             }
             Err(e) => {
-                tracing::warn!("无法连接数据库，订单存储已禁用: {}", e);
+                tracing::warn!("无法连接数据库，订单存储与交易审计已禁用: {}", e);
                 Arc::new(ExecutionService::with_full_config(
-                    strategy, risk, execution, Some(risk_state), None, Some(audit),
+                    strategy,
+                    risk,
+                    execution,
+                    Some(risk_state),
+                    None,
+                    None,
                 ))
             }
         }
     } else {
-        tracing::info!("订单存储已禁用");
+        tracing::info!("订单存储与交易审计已禁用");
         Arc::new(ExecutionService::with_full_config(
-            strategy, risk, execution, Some(risk_state), None, Some(audit),
+            strategy,
+            risk,
+            execution,
+            Some(risk_state),
+            None,
+            None,
         ))
     };
 

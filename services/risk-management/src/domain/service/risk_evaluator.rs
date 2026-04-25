@@ -1,61 +1,69 @@
-//! # 风险评估器 (Risk Evaluator Service)
-//!
-//! 本模块属于领域层，实现综合风险评估逻辑。
-//!
-//! ## 职责
-//! - 综合评估用户的风险状况
-//! - 根据风控配置做出风险决策
-//! - 返回审批、拒绝或需要审核的决策
+//! Risk evaluator domain service.
 
 use anyhow::Result;
+use rust_decimal::Decimal;
+
 use crate::domain::model::risk_profile::RiskProfile;
 
-/// 风险评估器
-///
-/// 领域服务，负责综合评估订单的风险状况。
-/// 根据用户的风控配置和当前市场状况做出决策。
-#[allow(dead_code)]
 pub struct RiskEvaluator;
 
-#[allow(dead_code)]
 impl RiskEvaluator {
-    /// 创建风险评估器实例
     pub fn new() -> Self {
         Self
     }
-    
-    /// 评估风险
-    ///
-    /// 根据用户的风控配置评估订单风险。
-    ///
-    /// # 参数
-    /// - `_profile`: 用户的风控配置
-    ///
-    /// # 返回值
-    /// - `Ok(RiskDecision)`: 风险决策结果
-    /// - `Err`: 评估过程中发生错误
-    ///
-    /// # TODO
-    /// - 实现杠杆检查
-    /// - 实现回撤检查
-    /// - 实现持仓规模检查
-    /// - 实现每日亏损限额检查
-    pub fn evaluate(&self, _profile: &RiskProfile) -> Result<RiskDecision> {
-        // TODO: 实现风险评估
+
+    pub fn evaluate(&self, profile: &RiskProfile) -> Result<RiskDecision> {
+        if profile.max_leverage <= Decimal::ZERO {
+            return Ok(RiskDecision::Rejected("invalid max_leverage".to_string()));
+        }
+        if profile.max_drawdown < Decimal::ZERO || profile.max_drawdown > Decimal::ONE {
+            return Ok(RiskDecision::Rejected("max_drawdown must be between 0 and 1".to_string()));
+        }
+        if profile.max_position_size <= Decimal::ZERO {
+            return Ok(RiskDecision::Rejected("max_position_size must be positive".to_string()));
+        }
+        if profile.daily_loss_limit <= Decimal::ZERO {
+            return Ok(RiskDecision::RequiresReview);
+        }
         Ok(RiskDecision::Approved)
+    }
+
+    pub fn evaluate_order(
+        &self,
+        profile: &RiskProfile,
+        quantity: Decimal,
+        price: Decimal,
+    ) -> Result<RiskDecision> {
+        if quantity <= Decimal::ZERO {
+            return Ok(RiskDecision::Rejected("quantity must be positive".to_string()));
+        }
+        if price <= Decimal::ZERO {
+            return Ok(RiskDecision::Rejected("price must be positive".to_string()));
+        }
+
+        if quantity > profile.max_position_size {
+            return Ok(RiskDecision::Rejected(format!(
+                "position size {} exceeds limit {}",
+                quantity, profile.max_position_size
+            )));
+        }
+
+        let notional = quantity * price;
+        let max_notional_by_leverage = profile.max_leverage * profile.daily_loss_limit;
+        if max_notional_by_leverage > Decimal::ZERO && notional > max_notional_by_leverage {
+            return Ok(RiskDecision::Rejected(format!(
+                "notional {} exceeds leverage-adjusted limit {}",
+                notional, max_notional_by_leverage
+            )));
+        }
+
+        self.evaluate(profile)
     }
 }
 
-/// 风险决策
-///
-/// 表示风险评估的结果。
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum RiskDecision {
-    /// 审批通过 - 订单符合风控要求
     Approved,
-    /// 拒绝 - 订单不符合风控要求，附带拒绝原因
     Rejected(String),
-    /// 需要审核 - 订单需要人工审核
     RequiresReview,
 }

@@ -53,6 +53,15 @@ pub struct ExecutionFill {
     pub created_at: DateTime<Utc>,
 }
 
+/// 执行流事件
+///
+/// 统一承载成交和撤单事件，便于单通道消费。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ExecutionStreamEvent {
+    Fill(ExecutionFill),
+    Canceled(OrderCanceled),
+}
+
 /// 成交方向
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FillSide {

@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use async_trait::async_trait;
+use rust_decimal::Decimal;
 use uuid::Uuid;
 
 use crate::domain::model::order::Order;
@@ -22,6 +23,25 @@ pub trait OrderRepositoryPort: Send + Sync {
 
     /// 根据 ID 查询订单
     async fn find_order_by_id(&self, order_id: Uuid) -> Result<Option<Order>>;
+
+    /// 根据交易所订单 ID 查询订单
+    async fn find_order_by_exchange_order_id(&self, exchange_order_id: &str) -> Result<Option<Order>>;
+
+    /// 根据交易所订单 ID 更新成交状态
+    async fn update_order_fill_by_exchange_order_id(
+        &self,
+        exchange_order_id: &str,
+        status: &str,
+        filled_quantity: Decimal,
+        average_price: Option<Decimal>,
+    ) -> Result<()>;
+
+    /// 根据交易所订单 ID 更新订单状态
+    async fn update_order_status_by_exchange_order_id(
+        &self,
+        exchange_order_id: &str,
+        status: &str,
+    ) -> Result<()>;
 
     /// 保存成交记录
     async fn save_trade(&self, trade: &Trade) -> Result<()>;
@@ -43,6 +63,39 @@ impl<T: OrderRepositoryPort> OrderRepositoryPort for Arc<T> {
 
     async fn find_order_by_id(&self, order_id: Uuid) -> Result<Option<Order>> {
         (**self).find_order_by_id(order_id).await
+    }
+
+    async fn find_order_by_exchange_order_id(&self, exchange_order_id: &str) -> Result<Option<Order>> {
+        (**self)
+            .find_order_by_exchange_order_id(exchange_order_id)
+            .await
+    }
+
+    async fn update_order_fill_by_exchange_order_id(
+        &self,
+        exchange_order_id: &str,
+        status: &str,
+        filled_quantity: Decimal,
+        average_price: Option<Decimal>,
+    ) -> Result<()> {
+        (**self)
+            .update_order_fill_by_exchange_order_id(
+                exchange_order_id,
+                status,
+                filled_quantity,
+                average_price,
+            )
+            .await
+    }
+
+    async fn update_order_status_by_exchange_order_id(
+        &self,
+        exchange_order_id: &str,
+        status: &str,
+    ) -> Result<()> {
+        (**self)
+            .update_order_status_by_exchange_order_id(exchange_order_id, status)
+            .await
     }
 
     async fn save_trade(&self, trade: &Trade) -> Result<()> {

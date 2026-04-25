@@ -40,7 +40,8 @@ mod bootstrap;
 
 use anyhow::Result;           // 错误处理
 use std::net::SocketAddr;     // 网络地址
-use tracing::{error, info};            // 日志
+use std::sync::Arc;           // 原子引用计数
+use tracing::{error, info};   // 日志
 use tracing_subscriber::EnvFilter;
 
 // ============================================================================
@@ -60,42 +61,70 @@ async fn main() -> Result<()> {
                 .unwrap_or_else(|_| EnvFilter::new("info"))
         )
         .init();
-    
+
+    info!("Strategy Engine starting...");
+
     // 创建应用状态
-    let state = state::AppState::new().await?;
+    let mut state = state::AppState::new().await?;
     let config = state.config.as_ref().clone();
 
-    let consumer = bootstrap::create_market_event_consumer(
+    // 创建策略调度器（新版本）
+    let (registry, scheduler, loader) = bootstrap::create_strategy_scheduler(
         config.kafka_brokers.clone(),
         config.kafka_market_topic.clone(),
         config.kafka_signal_topic.clone(),
         config.kafka_consumer_group.clone(),
-        config.strategy_type.clone(),
-        config.grid_config.clone(),
-        config.mean_reversion_config.clone(),
-    )?;
-    tokio::spawn(async move {
-        if let Err(err) = consumer.run().await {
-            error!(error = %err, "market event consumer stopped");
+    ).await?;
+
+    // 注入运行时组件到 AppState，供 HTTP handler 直接使用
+    let loader = Arc::new(loader);
+    state.strategy_registry = Some(Arc::clone(&registry));
+    state.strategy_loader = Some(Arc::clone(&loader));
+
+    // 加载示例策略
+    info!("Loading example strategies...");
+    let example_configs = application::scheduler::StrategyLoader::load_example_strategies();
+    let instance_ids = loader.load_strategies(example_configs).await?;
+    info!("Loaded {} strategies", instance_ids.len());
+
+    // 启动调度器（在后台任务中运行）
+    let scheduler_clone = Arc::clone(&scheduler);
+    let scheduler_handle = tokio::spawn(async move {
+        if let Err(err) = scheduler_clone.run().await {
+            error!(error = %err, "Strategy scheduler stopped");
         }
     });
-    
+
     // 创建路由
     let app = interface::http::routes::create_router(state);
-    
+
     // 从环境变量读取端口，默认 8083
     let port: u16 = std::env::var("STRATEGY_ENGINE_PORT")
         .ok()
         .and_then(|p| p.parse().ok())
         .unwrap_or(8083);
-    
+
     // 构建监听地址
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     info!("Strategy Engine listening on {}", addr);
-    
+
     // 启动服务
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
-    
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
+
+    scheduler_handle.abort();
+    info!("Strategy Engine 已优雅关闭");
+
     Ok(())
+}
+
+async fn shutdown_signal() {
+    if let Err(err) = tokio::signal::ctrl_c().await {
+        error!(error = %err, "监听 Ctrl+C 失败");
+        return;
+    }
+
+    info!("收到 Ctrl+C，开始优雅关闭");
 }

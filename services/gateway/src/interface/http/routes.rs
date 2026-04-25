@@ -13,7 +13,7 @@
 //! | POST | /api/v1/orders | create_order | 创建订单 |
 //! | GET | /api/v1/positions | list_positions | 持仓列表 |
 
-use axum::{routing::{get, post}, Router};
+use axum::{routing::{any, get, post}, Router};
 use tower_http::cors::{CorsLayer, Any};
 use crate::state::AppState;
 use super::handlers;
@@ -33,6 +33,10 @@ pub fn create_router(state: AppState) -> Router {
         .route("/health", get(handlers::health::health_check))
         // 服务状态端点
         .route("/api/v1/services", get(handlers::services::check_services))
+        // 用户认证端点（代理到 user-management）
+        .route("/api/v1/auth/login", post(handlers::auth::login))
+        .route("/api/v1/auth/register", post(handlers::auth::register))
+        .route("/api/v1/user/profile", get(handlers::auth::profile))
         // 策略管理端点（代理到 strategy-engine）
         .route("/api/v1/strategies", get(handlers::strategies::list_strategies))
         .route("/api/v1/strategies", post(handlers::strategies::create_strategy))
@@ -41,6 +45,9 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/v1/orders", post(handlers::orders::create_order))
         // 持仓管理端点（代理到 trading-engine）
         .route("/api/v1/positions", get(handlers::positions::list_positions))
+        // 风控检查端点（代理到 risk-management）
+        .route("/api/v1/risk/check", post(handlers::risk::check_risk))
+        .route("/api/v1/proxy/{service}/{*path}", any(handlers::proxy::proxy_request))
         // CORS 中间件
         .layer(cors)
         // 注入应用状态

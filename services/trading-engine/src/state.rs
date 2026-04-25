@@ -20,13 +20,13 @@ pub struct AppConfig {
     pub kafka_market_topic: String,
     /// 消费者组 ID
     pub kafka_consumer_group: String,
-    /// 执行模式: "binance" 或 "noop"
+    /// 执行模式: "binance" 或 "binance_futures"
     pub execution_mode: String,
-    /// 策略模式: "remote" 或 "noop"
+    /// 策略模式: "remote"
     pub strategy_mode: String,
     /// Strategy Engine 服务地址
     pub strategy_engine_url: Option<String>,
-    /// 风控模式: "remote" 或 "local"
+    /// 风控模式: "remote"
     pub risk_mode: String,
     /// Risk Management 服务地址（remote 模式需要）
     pub risk_management_url: Option<String>,
@@ -58,12 +58,12 @@ impl AppState {
             kafka_consumer_group: std::env::var("KAFKA_CONSUMER_GROUP")
                 .unwrap_or_else(|_| "trading-engine".to_string()),
             execution_mode: std::env::var("TRADING_EXECUTION_MODE")
-                .unwrap_or_else(|_| "noop".to_string()),
+                .unwrap_or_else(|_| "binance".to_string()),
             strategy_mode: std::env::var("TRADING_STRATEGY_MODE")
-                .unwrap_or_else(|_| "noop".to_string()),
+                .unwrap_or_else(|_| "remote".to_string()),
             strategy_engine_url: std::env::var("STRATEGY_ENGINE_URL").ok(),
             risk_mode: std::env::var("TRADING_RISK_MODE")
-                .unwrap_or_else(|_| "local".to_string()),
+                .unwrap_or_else(|_| "remote".to_string()),
             risk_management_url: std::env::var("RISK_MANAGEMENT_URL").ok(),
             binance_api_key: std::env::var("BINANCE_API_KEY").ok(),
             binance_secret_key: std::env::var("BINANCE_SECRET_KEY").ok(),

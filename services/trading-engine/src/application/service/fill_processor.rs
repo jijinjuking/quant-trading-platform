@@ -20,10 +20,10 @@
 use std::sync::Arc;
 
 use rust_decimal::Decimal;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 use crate::domain::model::execution_fill::{
-    CancelReason, ExecutionFill, FillSide, FillType, OrderAccepted, OrderCanceled,
+    CancelReason, ExecutionFill, FillSide, OrderAccepted, OrderCanceled,
 };
 use crate::domain::port::risk_state_port::{RiskOpenOrder, RiskStatePort};
 
@@ -266,6 +266,7 @@ impl FillProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::model::execution_fill::FillType;
     use crate::infrastructure::risk::inmemory_risk_state::InMemoryRiskStateAdapter;
 
     fn dec(s: &str) -> Decimal {

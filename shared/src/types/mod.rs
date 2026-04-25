@@ -5,3 +5,5 @@ pub mod order;
 pub mod position;
 pub mod market;
 pub mod strategy;
+pub mod copytrading;
+pub mod commission;

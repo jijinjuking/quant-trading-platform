@@ -41,6 +41,12 @@ pub struct CreateStrategyRequest {
     /// 策略配置（JSON）
     #[serde(default)]
     pub config: serde_json::Value,
+    /// 用户ID（必填）
+    pub owner_id: Option<Uuid>,
+    /// 策略名称（可选）
+    pub name: Option<String>,
+    /// 是否自动启动，默认 true
+    pub auto_start: Option<bool>,
 }
 
 /// 创建策略响应

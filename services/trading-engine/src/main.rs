@@ -41,12 +41,12 @@ mod bootstrap;      // 依赖注入模块
 // ============================================================
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use std::net::SocketAddr;
 use tracing::{error, info, warn};
 
 use crate::domain::port::exchange_query_port::ExchangeQueryPort;
-use crate::infrastructure::exchange::BinanceQueryAdapter;
+use crate::infrastructure::exchange::{create_fill_stream, BinanceQueryAdapter};
 use crate::application::service::risk_state_coordinator::{RiskStateCoordinator, RebuildReason};
 use crate::bootstrap::{
     create_risk_state,
@@ -103,23 +103,24 @@ async fn main() -> Result<()> {
     // ========================================
     // Step 3: 创建 RiskStateCoordinator
     // ========================================
-    let exchange_query: Option<Arc<dyn ExchangeQueryPort>> = match (
-        &config.binance_api_key,
-        &config.binance_secret_key,
-    ) {
-        (Some(api_key), Some(secret_key)) => {
-            Some(Arc::new(BinanceQueryAdapter::new(
-                api_key.clone(),
-                secret_key.clone(),
-                config.binance_base_url.clone(),
-            )))
-        }
-        _ => None,
-    };
+    let api_key = config
+        .binance_api_key
+        .clone()
+        .ok_or_else(|| anyhow!("BINANCE_API_KEY is required for real exchange integration"))?;
+    let secret_key = config
+        .binance_secret_key
+        .clone()
+        .ok_or_else(|| anyhow!("BINANCE_SECRET_KEY is required for real exchange integration"))?;
+
+    let exchange_query: Arc<dyn ExchangeQueryPort> = Arc::new(BinanceQueryAdapter::new(
+        api_key,
+        secret_key,
+        config.binance_base_url.clone(),
+    ));
 
     let coordinator = Arc::new(RiskStateCoordinator::new(
         Arc::clone(&risk_state),
-        exchange_query.clone(),
+        Some(Arc::clone(&exchange_query)),
     ));
 
     // 执行启动时状态初始化
@@ -149,35 +150,49 @@ async fn main() -> Result<()> {
     };
 
     let market_consumer = create_market_event_consumer_with_state(consumer_config).await?;
+    let execution_service = market_consumer.execution_service();
     info!("交易主链路消费者已创建");
 
     // 启动消费者
-    tokio::spawn(async move {
+    let market_consumer_handle = tokio::spawn(async move {
         if let Err(err) = market_consumer.run().await {
             error!(error = %err, "market event consumer stopped");
         }
     });
     info!("交易主链路消费者已启动");
 
+    // 启动真实成交回报链路（Binance User Data Stream）
+    let (fill_stream, fill_rx) = create_fill_stream();
+    let coordinator_for_reconnect = Arc::clone(&coordinator);
+    let fill_stream = fill_stream.with_reconnect_callback(move || {
+        let coordinator = Arc::clone(&coordinator_for_reconnect);
+        tokio::spawn(async move {
+            coordinator.notify_reconnect().await;
+        });
+    });
+
+    let fill_stream_handle = tokio::spawn(async move {
+        if let Err(err) = fill_stream.run().await {
+            error!(error = %err, "binance fill stream stopped");
+        }
+    });
+
+    let fill_consumer_handle = tokio::spawn(async move {
+        execution_service.run_fill_consumer(fill_rx).await;
+    });
+    info!("真实成交回报链路已启动");
+
     // ========================================
     // Step 5: 通过 bootstrap 启动所有后台服务
     // ========================================
-    let _background_handles = start_background_services(Arc::clone(&risk_state));
+    let background_handles = start_background_services(Arc::clone(&risk_state));
     info!("所有后台服务已通过 bootstrap 启动");
 
     // ========================================
     // Step 6: 创建交易所查询适配器（用于 HTTP API）
     // ========================================
-    let http_exchange_query: Arc<dyn ExchangeQueryPort> = match exchange_query {
-        Some(eq) => {
-            info!("交易所查询适配器已启用 (Binance)");
-            eq
-        }
-        None => {
-            warn!("未配置币安 API 密钥，交易所查询功能将不可用");
-            Arc::new(NoopExchangeQuery)
-        }
-    };
+    info!("交易所查询适配器已启用 (Binance)");
+    let http_exchange_query = exchange_query;
 
     // ========================================
     // Step 7: 创建 HTTP 路由
@@ -196,47 +211,25 @@ async fn main() -> Result<()> {
     info!("Trading Engine listening on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
+
+    info!("开始关闭后台任务...");
+    market_consumer_handle.abort();
+    fill_stream_handle.abort();
+    fill_consumer_handle.abort();
+    background_handles.abort_all();
+    info!("Trading Engine 已优雅关闭");
 
     Ok(())
 }
 
-/// Noop 交易所查询适配器（未配置 API 时使用）
-struct NoopExchangeQuery;
-
-#[async_trait::async_trait]
-impl ExchangeQueryPort for NoopExchangeQuery {
-    async fn get_spot_balances(&self) -> anyhow::Result<Vec<domain::port::exchange_query_port::AccountBalance>> {
-        Ok(vec![])
+async fn shutdown_signal() {
+    if let Err(err) = tokio::signal::ctrl_c().await {
+        error!(error = %err, "监听 Ctrl+C 失败");
+        return;
     }
 
-    async fn get_futures_positions(&self) -> anyhow::Result<Vec<domain::port::exchange_query_port::Position>> {
-        Ok(vec![])
-    }
-
-    async fn get_order(&self, _symbol: &str, _order_id: &str) -> anyhow::Result<Option<domain::port::exchange_query_port::ExchangeOrder>> {
-        Ok(None)
-    }
-
-    async fn get_open_orders(&self, _symbol: Option<&str>) -> anyhow::Result<Vec<domain::port::exchange_query_port::ExchangeOrder>> {
-        Ok(vec![])
-    }
-
-    async fn cancel_order(&self, symbol: &str, order_id: &str) -> anyhow::Result<domain::port::exchange_query_port::CancelOrderResult> {
-        Ok(domain::port::exchange_query_port::CancelOrderResult {
-            order_id: order_id.to_string(),
-            symbol: symbol.to_string(),
-            success: false,
-            error: Some("交易所查询未配置".to_string()),
-        })
-    }
-
-    async fn cancel_all_orders(&self, symbol: &str) -> anyhow::Result<Vec<domain::port::exchange_query_port::CancelOrderResult>> {
-        Ok(vec![domain::port::exchange_query_port::CancelOrderResult {
-            order_id: "all".to_string(),
-            symbol: symbol.to_string(),
-            success: false,
-            error: Some("交易所查询未配置".to_string()),
-        }])
-    }
+    info!("收到 Ctrl+C，开始优雅关闭");
 }

@@ -1,6 +1,10 @@
 //! # 领域策略逻辑模块 (Domain Strategy Logic)
 //!
 //! 策略算法实现与信号生成入口。
+//!
+//! ## 注意
+//! - `strategy_registry` 已迁移到 `domain/service/` 目录
+//! - 这里只保留策略算法实现
 
 /// 网格策略逻辑 (Grid Strategy Logic) - 保留兼容
 pub mod grid;
@@ -13,9 +17,6 @@ pub mod signal_generator;
 
 /// 统一策略 Trait (Strategy Trait)
 pub mod strategy_trait;
-
-/// 策略注册表 (Strategy Registry)
-pub mod strategy_registry;
 
 /// 现货策略模块 (Spot Strategies)
 pub mod spot;

@@ -21,6 +21,9 @@ pub mod health;
 /// 通用代理转发处理器
 pub mod proxy;
 
+/// 认证处理器
+pub mod auth;
+
 /// 策略管理处理器
 pub mod strategies;
 
@@ -32,3 +35,6 @@ pub mod positions;
 
 /// 服务状态处理器
 pub mod services;
+
+/// 风控处理器
+pub mod risk;

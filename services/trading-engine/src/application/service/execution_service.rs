@@ -33,8 +33,9 @@ use tracing::{info, warn, error, debug};
 use uuid::Uuid;
 
 use crate::domain::model::order::{Order, OrderSide, OrderStatus, OrderType};
+use crate::domain::model::trade::Trade;
 use crate::domain::model::audit_event::{ExecutionResultEvent, RiskRejectedEvent};
-use crate::domain::model::execution_fill::{ExecutionFill, FillSide, FillType};
+use crate::domain::model::execution_fill::{ExecutionFill, ExecutionStreamEvent, FillSide, FillType};
 use crate::domain::port::order_execution_port::OrderExecutionPort;
 use crate::domain::port::order_repository_port::OrderRepositoryPort;
 use crate::domain::port::order_risk_port::OrderRiskPort;
@@ -275,24 +276,8 @@ impl ExecutionService {
                 );
             }
 
-            // 4.2 v1 阶段：模拟立即成交（100% 成交）
-            // 将来可替换为 WebSocket 成交事件
-            let fill_price = intent.price.unwrap_or_else(|| {
-                // 市价单使用一个默认价格（实际应从成交回报获取）
-                Decimal::ZERO
-            });
-            
-            // 计算模拟手续费（0.1%）
-            let commission = intent.quantity * fill_price * Decimal::new(1, 3);
-            
-            self.simulate_immediate_fill(
-                &result.order_id,
-                &intent.symbol,
-                fill_side,
-                intent.quantity,
-                fill_price,
-                commission,
-            ).await;
+            // 4.2 等待真实成交回报（User Data Stream）驱动持仓和余额更新
+            // 这里只记录下单时间，不做本地模拟成交。
 
             // 4.3 更新风控状态 - 下单时间（通过 OrderRiskPort）
             self.risk.record_order_time(&intent.symbol).await;
@@ -332,10 +317,12 @@ impl ExecutionService {
                     order_type,
                     quantity: intent.quantity,
                     price: intent.price,
-                    status: OrderStatus::Filled, // 成功执行的订单
+                    // 真实成交由 User Data Stream 回报驱动，
+                    // 下单成功仅表示交易所已接收订单。
+                    status: OrderStatus::Pending,
                     exchange_order_id: Some(result.order_id.clone()),
-                    filled_quantity: intent.quantity,
-                    average_price: intent.price,
+                    filled_quantity: Decimal::ZERO,
+                    average_price: None,
                     created_at: Utc::now(),
                     updated_at: Utc::now(),
                 };
@@ -457,6 +444,19 @@ impl ExecutionService {
                 order_id = %order_id,
                 "Order canceled, removed from RiskStatePort"
             );
+        }
+
+        if let Some(ref repo) = self.order_repo {
+            if let Err(e) = repo
+                .update_order_status_by_exchange_order_id(order_id, OrderStatus::Cancelled.as_str())
+                .await
+            {
+                warn!(
+                    order_id = %order_id,
+                    error = %e,
+                    "Failed to update canceled order status in repository"
+                );
+            }
         }
     }
 
@@ -625,56 +625,99 @@ impl ExecutionService {
             }
         }
 
+        if let Some(ref repo) = self.order_repo {
+            let status = match fill.fill_type {
+                FillType::Partial => OrderStatus::PartiallyFilled.as_str(),
+                FillType::Full => OrderStatus::Filled.as_str(),
+            };
+
+            let existing_order = match repo.find_order_by_exchange_order_id(&fill.order_id).await {
+                Ok(order) => order,
+                Err(e) => {
+                    warn!(
+                        order_id = %fill.order_id,
+                        error = %e,
+                        "Failed to load existing order for persistence"
+                    );
+                    None
+                }
+            };
+
+            let weighted_avg_price = if let Some(ref order) = existing_order {
+                let prev_qty = order.filled_quantity;
+                let prev_avg = order.average_price.unwrap_or(fill.fill_price);
+                let new_qty = prev_qty + fill.filled_quantity;
+
+                if new_qty > Decimal::ZERO {
+                    let total_notional = prev_avg * prev_qty + fill.fill_price * fill.filled_quantity;
+                    Some(total_notional / new_qty)
+                } else {
+                    Some(fill.fill_price)
+                }
+            } else {
+                Some(fill.fill_price)
+            };
+
+            if let Err(e) = repo
+                .update_order_fill_by_exchange_order_id(
+                    &fill.order_id,
+                    status,
+                    fill.cumulative_quantity,
+                    weighted_avg_price,
+                )
+                .await
+            {
+                warn!(
+                    order_id = %fill.order_id,
+                    status = %status,
+                    error = %e,
+                    "Failed to persist fill result to repository"
+                );
+            }
+
+            if fill.filled_quantity > Decimal::ZERO {
+                if let Some(order) = existing_order {
+                    let trade = Trade {
+                        id: Uuid::new_v4(),
+                        order_id: order.id,
+                        user_id: order.user_id,
+                        symbol: fill.symbol.clone(),
+                        side: match fill.side {
+                            FillSide::Buy => OrderSide::Buy,
+                            FillSide::Sell => OrderSide::Sell,
+                        },
+                        quantity: fill.filled_quantity,
+                        price: fill.fill_price,
+                        fee: fill.commission,
+                        fee_currency: fill.commission_asset.clone(),
+                        exchange_trade_id: Some(fill.trade_id.clone()),
+                        is_maker: false,
+                        trade_time: fill.fill_time,
+                    };
+
+                    if let Err(e) = repo.save_trade(&trade).await {
+                        warn!(
+                            order_id = %fill.order_id,
+                            trade_id = %fill.trade_id,
+                            error = %e,
+                            "Failed to persist trade record"
+                        );
+                    }
+                } else {
+                    warn!(
+                        order_id = %fill.order_id,
+                        trade_id = %fill.trade_id,
+                        "Skip trade persistence: order not found by exchange_order_id"
+                    );
+                }
+            }
+        }
+
         info!(
             order_id = %fill.order_id,
             symbol = %fill.symbol,
             "Execution fill applied successfully"
         );
-    }
-
-    /// 模拟立即成交（v1 阶段使用）
-    ///
-    /// 在 v1 阶段，下单成功后立即模拟 100% 成交。
-    /// 将来可直接替换为 WebSocket 成交事件。
-    ///
-    /// # 参数
-    /// - `order_id`: 订单 ID
-    /// - `symbol`: 交易对
-    /// - `side`: 方向
-    /// - `quantity`: 成交数量
-    /// - `price`: 成交价格
-    /// - `commission`: 手续费
-    pub async fn simulate_immediate_fill(
-        &self,
-        order_id: &str,
-        symbol: &str,
-        side: FillSide,
-        quantity: Decimal,
-        price: Decimal,
-        commission: Decimal,
-    ) {
-        // 生成唯一的 trade_id（模拟场景使用 UUID）
-        let trade_id = format!("sim_{}", Uuid::new_v4());
-        
-        let fill = ExecutionFill {
-            id: Uuid::new_v4(),
-            order_id: order_id.to_string(),
-            trade_id,
-            client_order_id: None,
-            symbol: symbol.to_string(),
-            side,
-            fill_type: FillType::Full,
-            filled_quantity: quantity,
-            fill_price: price,
-            cumulative_quantity: quantity,
-            original_quantity: quantity,
-            commission,
-            commission_asset: "USDT".to_string(),
-            fill_time: Utc::now(),
-            created_at: Utc::now(),
-        };
-
-        self.apply_execution_fill(&fill).await;
     }
 
     /// 处理来自 WebSocket 的成交事件
@@ -709,7 +752,7 @@ impl ExecutionService {
         self.apply_execution_fill(&fill).await;
 
         // 记录审计日志（如果配置了）
-        if let Some(ref audit) = self.audit {
+        if self.audit.is_some() {
             // TODO: 添加成交审计事件类型
             debug!(
                 order_id = %fill.order_id,
@@ -734,12 +777,17 @@ impl ExecutionService {
     /// ```
     pub async fn run_fill_consumer(
         &self,
-        mut fill_rx: tokio::sync::mpsc::Receiver<ExecutionFill>,
+        mut fill_rx: tokio::sync::mpsc::Receiver<ExecutionStreamEvent>,
     ) {
         info!("ExecutionService fill consumer started");
 
-        while let Some(fill) = fill_rx.recv().await {
-            self.on_execution_fill(fill).await;
+        while let Some(event) = fill_rx.recv().await {
+            match event {
+                ExecutionStreamEvent::Fill(fill) => self.on_execution_fill(fill).await,
+                ExecutionStreamEvent::Canceled(canceled) => {
+                    self.on_order_canceled(&canceled.order_id).await;
+                }
+            }
         }
 
         warn!("ExecutionService fill consumer stopped (channel closed)");

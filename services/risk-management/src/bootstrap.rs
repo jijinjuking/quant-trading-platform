@@ -4,10 +4,11 @@
 
 use crate::infrastructure::repository::risk_repository::RiskRepository;
 use crate::application::service::risk_check_service::RiskCheckService;
+use rust_decimal::Decimal;
 
 /// 创建风险检查服务实例
 #[allow(dead_code)]
 pub fn create_risk_check_service() -> RiskCheckService<RiskRepository> {
-    let repository = RiskRepository::new();
+    let repository = RiskRepository::with_defaults(Decimal::new(10, 0), Decimal::new(20, 2), Decimal::new(100, 0), Decimal::new(5000, 0));
     RiskCheckService::new(repository)
 }

@@ -124,6 +124,97 @@ impl OrderRepositoryPort for PostgresOrderRepository {
         }
     }
 
+    async fn find_order_by_exchange_order_id(&self, exchange_order_id: &str) -> Result<Option<Order>> {
+        let client = self.pool.get().await.context("获取数据库连接失败")?;
+
+        let sql = r#"
+            SELECT id, user_id, symbol, order_type, side, quantity, price,
+                   status, filled_quantity, average_price, created_at, updated_at,
+                   metadata
+            FROM orders
+            WHERE metadata->>'exchange_order_id' = $1
+            ORDER BY updated_at DESC
+            LIMIT 1
+        "#;
+
+        let row = client
+            .query_opt(sql, &[&exchange_order_id])
+            .await
+            .context("根据交易所订单 ID 查询订单失败")?;
+
+        match row {
+            Some(row) => Ok(Some(row_to_order(&row)?)),
+            None => Ok(None),
+        }
+    }
+
+    async fn update_order_fill_by_exchange_order_id(
+        &self,
+        exchange_order_id: &str,
+        status: &str,
+        filled_quantity: Decimal,
+        average_price: Option<Decimal>,
+    ) -> Result<()> {
+        let client = self.pool.get().await.context("获取数据库连接失败")?;
+
+        let sql = r#"
+            UPDATE orders
+            SET status = $1,
+                filled_quantity = $2,
+                average_price = $3,
+                updated_at = NOW()
+            WHERE metadata->>'exchange_order_id' = $4
+        "#;
+
+        client
+            .execute(
+                sql,
+                &[
+                    &status,
+                    &filled_quantity.to_string(),
+                    &average_price.map(|p| p.to_string()),
+                    &exchange_order_id,
+                ],
+            )
+            .await
+            .context("根据交易所订单 ID 更新订单成交状态失败")?;
+
+        debug!(
+            exchange_order_id = %exchange_order_id,
+            status = %status,
+            filled_quantity = %filled_quantity,
+            "订单成交状态已更新"
+        );
+        Ok(())
+    }
+
+    async fn update_order_status_by_exchange_order_id(
+        &self,
+        exchange_order_id: &str,
+        status: &str,
+    ) -> Result<()> {
+        let client = self.pool.get().await.context("获取数据库连接失败")?;
+
+        let sql = r#"
+            UPDATE orders
+            SET status = $1,
+                updated_at = NOW()
+            WHERE metadata->>'exchange_order_id' = $2
+        "#;
+
+        client
+            .execute(sql, &[&status, &exchange_order_id])
+            .await
+            .context("根据交易所订单 ID 更新订单状态失败")?;
+
+        debug!(
+            exchange_order_id = %exchange_order_id,
+            status = %status,
+            "订单状态已更新"
+        );
+        Ok(())
+    }
+
     /// 保存成交记录
     async fn save_trade(&self, trade: &Trade) -> Result<()> {
         let client = self.pool.get().await.context("获取数据库连接失败")?;
@@ -136,11 +227,12 @@ impl OrderRepositoryPort for PostgresOrderRepository {
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
             )
+            ON CONFLICT (exchange_trade_id) DO NOTHING
         "#;
 
         let metadata = serde_json::json!({});
 
-        client
+        let inserted = client
             .execute(
                 sql,
                 &[
@@ -162,7 +254,15 @@ impl OrderRepositoryPort for PostgresOrderRepository {
             .await
             .context("保存成交记录失败")?;
 
-        debug!("成交记录已保存: {}", trade.id);
+        if inserted == 0 {
+            debug!(
+                exchange_trade_id = ?trade.exchange_trade_id,
+                order_id = %trade.order_id,
+                "成交记录重复，已幂等跳过"
+            );
+        } else {
+            debug!("成交记录已保存: {}", trade.id);
+        }
         Ok(())
     }
 

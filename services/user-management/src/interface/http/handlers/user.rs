@@ -1,41 +1,47 @@
-//! # 用户处理器
-//!
-//! 本文件定义用户相关的 HTTP 处理器。
-//!
-//! ## 所属层
-//! Interface Layer > HTTP > Handlers
-//!
-//! ## 端点
-//! - `GET /api/v1/user/profile`: 获取用户资料
+//! User HTTP handlers.
 
-use axum::Json;
-use serde_json::Value;
+use axum::{
+    extract::State,
+    http::{HeaderMap, StatusCode},
+    Json,
+};
 
-/// 获取用户资料处理器
-///
-/// 返回当前登录用户的资料信息。
-///
-/// # 返回值
-/// JSON 格式的用户资料响应
-///
-/// # TODO
-/// - 从请求中提取用户身份（JWT）
-/// - 调用 UserService 获取用户信息
-/// - 返回用户资料 DTO
-///
-/// # 响应示例
-/// ```json
-/// {
-///     "message": "profile endpoint"
-/// }
-/// ```
-pub async fn get_profile() -> Json<Value> {
-    // TODO: 实现获取用户资料逻辑
-    // 1. 从请求头提取 JWT Token
-    // 2. 验证 Token 并获取用户 ID
-    // 3. 调用 UserService.get_user()
-    // 4. 返回用户资料 DTO
-    Json(serde_json::json!({
-        "message": "profile endpoint"
-    }))
+use crate::application::service::auth_service::{AuthService, UserView};
+use crate::state::AppState;
+
+pub async fn get_profile(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<UserView>, (StatusCode, String)> {
+    let token = extract_bearer_token(&headers)?;
+    let service = AuthService::new(
+        state.user_repository.clone(),
+        state.config.jwt_secret.clone(),
+    );
+
+    let user = service
+        .user_from_token(&token)
+        .map_err(|err| (StatusCode::UNAUTHORIZED, err.to_string()))?;
+
+    Ok(Json(user))
+}
+
+fn extract_bearer_token(headers: &HeaderMap) -> Result<String, (StatusCode, String)> {
+    let value = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(|| (StatusCode::UNAUTHORIZED, "missing authorization header".to_string()))?;
+
+    let mut parts = value.split_whitespace();
+    let scheme = parts.next().unwrap_or_default();
+    let token = parts.next().unwrap_or_default();
+
+    if !scheme.eq_ignore_ascii_case("bearer") || token.is_empty() {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            "authorization must be Bearer <token>".to_string(),
+        ));
+    }
+
+    Ok(token.to_string())
 }

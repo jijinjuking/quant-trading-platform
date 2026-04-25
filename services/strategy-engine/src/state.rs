@@ -6,10 +6,12 @@ use anyhow::{Context, Result};
 use rust_decimal::Decimal;
 use std::sync::Arc;
 
+use crate::application::scheduler::StrategyLoader;
 use crate::domain::logic::grid::GridConfig;
 use crate::domain::logic::mean::MeanReversionConfig;
 use crate::domain::model::strategy_config::StrategyType;
 use crate::domain::port::StrategyStatePort;
+use crate::domain::service::strategy_registry::StrategyRegistry;
 use crate::infrastructure::cache::RedisStrategyStateAdapter;
 
 /// 应用状态容器 (Application State)
@@ -18,6 +20,10 @@ pub struct AppState {
     pub config: Arc<AppConfig>,
     /// 策略状态存储端口（Redis）
     pub strategy_state: Arc<dyn StrategyStatePort>,
+    /// 运行时策略注册表（由 main 注入）
+    pub strategy_registry: Option<Arc<StrategyRegistry>>,
+    /// 运行时策略加载器（由 main 注入）
+    pub strategy_loader: Option<Arc<StrategyLoader>>,
 }
 
 /// 应用配置 (Application Configuration)
@@ -70,6 +76,8 @@ impl AppState {
         Ok(Self {
             config: Arc::new(config),
             strategy_state,
+            strategy_registry: None,
+            strategy_loader: None,
         })
     }
 }

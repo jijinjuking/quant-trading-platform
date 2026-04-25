@@ -1,7 +1,5 @@
-//! # 审计基础设施适配器
-//!
-//! 路径: services/trading-engine/src/infrastructure/audit/mod.rs
+//! Audit infrastructure adapters.
 
-pub mod noop_audit;
+pub mod postgres_audit;
 
-pub use noop_audit::NoopAuditAdapter;
+pub use postgres_audit::PostgresTradeAuditAdapter;

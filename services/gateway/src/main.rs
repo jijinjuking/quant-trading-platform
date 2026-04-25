@@ -27,7 +27,7 @@ mod bootstrap;
 
 use anyhow::Result;
 use std::net::SocketAddr;
-use tracing::info;
+use tracing::{error, info};
 
 /// 服务主入口函数
 #[tokio::main]
@@ -64,16 +64,33 @@ async fn main() -> Result<()> {
     println!("API 端点:");
     println!("  GET  /health              - 健康检查");
     println!("  GET  /api/v1/services     - 服务状态");
+    println!("  POST /api/v1/auth/login   - 用户登录");
+    println!("  POST /api/v1/auth/register- 用户注册");
+    println!("  GET  /api/v1/user/profile - 用户资料");
     println!("  GET  /api/v1/strategies   - 策略列表");
     println!("  POST /api/v1/strategies   - 创建策略");
     println!("  GET  /api/v1/orders       - 订单列表");
     println!("  POST /api/v1/orders       - 创建订单");
     println!("  GET  /api/v1/positions    - 持仓列表");
+    println!("  POST /api/v1/risk/check   - 风控检查");
     println!("========================================");
     
     // 启动 HTTP 服务
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
+
+    info!("Gateway 已优雅关闭");
     
     Ok(())
+}
+
+async fn shutdown_signal() {
+    if let Err(err) = tokio::signal::ctrl_c().await {
+        error!(error = %err, "监听 Ctrl+C 失败");
+        return;
+    }
+
+    info!("收到 Ctrl+C，开始优雅关闭");
 }

@@ -1,122 +1,96 @@
-//! # 用户仓储实现
-//!
-//! 本文件实现用户仓储端口，提供用户数据的持久化操作。
-//!
-//! ## 所属层
-//! Infrastructure Layer > Repository
-//!
-//! ## 职责
-//! - 实现 `UserRepositoryPort` trait
-//! - 处理数据库 CRUD 操作
-//! - 实现 DB DTO 与领域对象的转换
-//!
-//! ## 设计说明
-//! 这是一个适配器（Adapter），将领域层的抽象接口适配到具体的数据库实现。
+//! User repository implementation.
+
+use std::collections::HashMap;
+use std::sync::RwLock;
 
 use uuid::Uuid;
+
 use crate::domain::model::user::User;
 use crate::domain::port::user_repository_port::UserRepositoryPort;
 
-/// 用户仓储实现
-///
-/// 实现 `UserRepositoryPort` trait，提供用户数据的持久化操作。
-/// 当前为骨架实现，实际项目中应注入数据库连接池。
-///
-/// # 示例
-/// ```ignore
-/// let repo = UserRepository::new();
-/// let user = repo.find_by_id(user_id);
-/// ```
-#[allow(dead_code)]
-pub struct UserRepository;
+pub struct UserRepository {
+    users: RwLock<HashMap<Uuid, User>>,
+    email_index: RwLock<HashMap<String, Uuid>>,
+    username_index: RwLock<HashMap<String, Uuid>>,
+}
 
-#[allow(dead_code)]
 impl UserRepository {
-    /// 创建用户仓储实例
-    ///
-    /// # 返回值
-    /// 新的 `UserRepository` 实例
-    ///
-    /// # TODO
-    /// - 注入数据库连接池
-    /// - 添加配置参数
     pub fn new() -> Self {
-        Self
+        Self {
+            users: RwLock::new(HashMap::new()),
+            email_index: RwLock::new(HashMap::new()),
+            username_index: RwLock::new(HashMap::new()),
+        }
+    }
+
+    fn norm_email(email: &str) -> String {
+        email.trim().to_ascii_lowercase()
+    }
+
+    fn norm_username(username: &str) -> String {
+        username.trim().to_ascii_lowercase()
+    }
+}
+
+impl Default for UserRepository {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
 impl UserRepositoryPort for UserRepository {
-    /// 保存用户到数据库
-    ///
-    /// # 参数
-    /// - `_user`: 要保存的用户实体引用
-    ///
-    /// # 返回值
-    /// - `true`: 保存成功
-    /// - `false`: 保存失败
-    ///
-    /// # TODO
-    /// - 实现 INSERT/UPDATE 逻辑
-    /// - 实现 Domain → DB DTO 转换
-    fn save(&self, _user: &User) -> bool {
-        // TODO: 实现数据库保存逻辑
-        // 1. 将 Domain User 转换为 DB DTO
-        // 2. 执行 INSERT 或 UPDATE
-        // 3. 返回操作结果
+    fn save(&self, user: &User) -> bool {
+        let email_key = Self::norm_email(&user.email);
+        let username_key = Self::norm_username(&user.username);
+
+        let mut users = match self.users.write() {
+            Ok(v) => v,
+            Err(_) => return false,
+        };
+        let mut email_index = match self.email_index.write() {
+            Ok(v) => v,
+            Err(_) => return false,
+        };
+        let mut username_index = match self.username_index.write() {
+            Ok(v) => v,
+            Err(_) => return false,
+        };
+
+        if let Some(existing) = email_index.get(&email_key) {
+            if *existing != user.id {
+                return false;
+            }
+        }
+
+        if let Some(existing) = username_index.get(&username_key) {
+            if *existing != user.id {
+                return false;
+            }
+        }
+
+        users.insert(user.id, user.clone());
+        email_index.insert(email_key, user.id);
+        username_index.insert(username_key, user.id);
         true
     }
-    
-    /// 根据 ID 从数据库查询用户
-    ///
-    /// # 参数
-    /// - `_id`: 用户唯一标识（UUID）
-    ///
-    /// # 返回值
-    /// - `Some(User)`: 找到用户
-    /// - `None`: 用户不存在
-    ///
-    /// # TODO
-    /// - 实现 SELECT 查询
-    /// - 实现 DB DTO → Domain 转换
-    fn find_by_id(&self, _id: Uuid) -> Option<User> {
-        // TODO: 实现数据库查询逻辑
-        // 1. 执行 SELECT 查询
-        // 2. 将 DB DTO 转换为 Domain User
-        // 3. 返回结果
-        None
+
+    fn find_by_id(&self, id: Uuid) -> Option<User> {
+        self.users.read().ok()?.get(&id).cloned()
     }
-    
-    /// 根据邮箱从数据库查询用户
-    ///
-    /// # 参数
-    /// - `_email`: 用户邮箱地址
-    ///
-    /// # 返回值
-    /// - `Some(User)`: 找到用户
-    /// - `None`: 用户不存在
-    ///
-    /// # TODO
-    /// - 实现 SELECT 查询
-    /// - 实现 DB DTO → Domain 转换
-    fn find_by_email(&self, _email: &str) -> Option<User> {
-        // TODO: 实现数据库查询逻辑
-        None
+
+    fn find_by_email(&self, email: &str) -> Option<User> {
+        let user_id = {
+            let email_index = self.email_index.read().ok()?;
+            email_index.get(&Self::norm_email(email)).copied()?
+        };
+        self.find_by_id(user_id)
     }
-    
-    /// 根据用户名从数据库查询用户
-    ///
-    /// # 参数
-    /// - `_username`: 用户名
-    ///
-    /// # 返回值
-    /// - `Some(User)`: 找到用户
-    /// - `None`: 用户不存在
-    ///
-    /// # TODO
-    /// - 实现 SELECT 查询
-    /// - 实现 DB DTO → Domain 转换
-    fn find_by_username(&self, _username: &str) -> Option<User> {
-        // TODO: 实现数据库查询逻辑
-        None
+
+    fn find_by_username(&self, username: &str) -> Option<User> {
+        let user_id = {
+            let username_index = self.username_index.read().ok()?;
+            username_index.get(&Self::norm_username(username)).copied()?
+        };
+        self.find_by_id(user_id)
     }
 }

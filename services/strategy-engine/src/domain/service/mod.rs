@@ -1,4 +1,8 @@
 //! # 领域服务 (Domain Services)
+//!
+//! 跨模型的领域规则。
 
-/// 信号生成器 - 跨模型规则
-pub mod signal_generator;
+/// 策略注册表
+pub mod strategy_registry;
+
+pub use strategy_registry::{RegistryStats, StrategyQuery, StrategyRegistry};

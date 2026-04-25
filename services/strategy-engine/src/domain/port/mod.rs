@@ -20,4 +20,8 @@ pub mod risk_port;
 /// 策略状态端口（Redis 缓存）
 pub mod strategy_state_port;
 
+/// 策略执行器端口（句柄与逻辑分离）
+pub mod strategy_executor_port;
+
 pub use strategy_state_port::{GridStateData, MeanReversionStateData, StrategyStatePort};
+pub use strategy_executor_port::StrategyExecutorPort;

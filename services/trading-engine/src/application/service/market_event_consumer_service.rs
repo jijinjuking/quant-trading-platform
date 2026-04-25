@@ -36,6 +36,11 @@ impl MarketEventConsumerService {
         Self { source, execution }
     }
 
+    /// Returns a clone of the execution service handle.
+    pub fn execution_service(&self) -> Arc<ExecutionService> {
+        Arc::clone(&self.execution)
+    }
+
     /// 运行消费循环
     ///
     /// 这是唯一的交易主循环入口。

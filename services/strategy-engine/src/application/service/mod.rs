@@ -14,3 +14,6 @@ pub mod risk_service;
 
 pub use market_event_consumer_service::MarketEventConsumerService;
 pub use risk_service::RiskService;
+
+// 注意: StrategyRegistry 已移至 domain/service/strategy_registry.rs
+// 请使用 crate::domain::service::StrategyRegistry

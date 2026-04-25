@@ -7,8 +7,13 @@
 //! - 管理后端服务地址
 //! - 提供 HTTP 客户端共享
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::sync::Arc;
+
+use crate::domain::port::auth_port::AuthPort;
+use crate::domain::port::cache_port::CachePort;
+use crate::infrastructure::auth::jwt_auth::JwtAuthAdapter;
+use crate::infrastructure::cache::redis_cache::RedisCache;
 
 /// 应用状态
 ///
@@ -19,6 +24,10 @@ pub struct AppState {
     pub config: Arc<AppConfig>,
     /// HTTP 客户端（用于代理请求）
     pub http_client: reqwest::Client,
+    /// JWT 认证端口
+    pub auth: Arc<dyn AuthPort>,
+    /// Redis 缓存/限流端口
+    pub cache: Arc<dyn CachePort>,
 }
 
 /// 应用配置
@@ -56,7 +65,7 @@ impl AppState {
     pub async fn new() -> Result<Self> {
         let config = AppConfig {
             jwt_secret: std::env::var("JWT_SECRET")
-                .unwrap_or_else(|_| "secret".to_string()),
+                .context("JWT_SECRET is required")?,
             redis_url: std::env::var("REDIS_URL")
                 .unwrap_or_else(|_| "redis://localhost:6379".to_string()),
             services: ServiceEndpoints {
@@ -79,9 +88,17 @@ impl AppState {
             .build()
             .map_err(|e| anyhow::anyhow!("创建 HTTP 客户端失败: {}", e))?;
         
+        let auth: Arc<dyn AuthPort> = Arc::new(JwtAuthAdapter::new(config.jwt_secret.clone()));
+        let cache: Arc<dyn CachePort> = Arc::new(
+            RedisCache::new(config.redis_url.clone())
+                .context("初始化 Redis 缓存失败")?,
+        );
+
         Ok(Self {
             config: Arc::new(config),
             http_client,
+            auth,
+            cache,
         })
     }
 }

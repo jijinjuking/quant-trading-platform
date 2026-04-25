@@ -29,7 +29,7 @@ pub struct Signal {
 }
 
 /// 信号类型枚举
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SignalType {
     /// 买入信号
     Buy,

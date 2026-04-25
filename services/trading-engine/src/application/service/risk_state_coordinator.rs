@@ -104,6 +104,9 @@ impl RiskStateCoordinator {
             Some(eq) => eq.as_ref(),
             None => {
                 warn!("未配置交易所查询端口，跳过状态重建");
+                // 即使跳过，也标记为已初始化（没有什么需要初始化的）
+                let mut initialized = self.initialized.write().await;
+                *initialized = true;
                 return Ok(());
             }
         };

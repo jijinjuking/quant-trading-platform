@@ -1,100 +1,87 @@
-//! # JWT 认证适配器
-//!
-//! 本模块实现基于 JWT 的认证端口。
-//!
-//! ## 六边形架构
-//! 这是一个基础设施层适配器，实现了领域层定义的 `AuthPort` trait。
-//!
-//! ```text
-//! domain::port::AuthPort (trait)
-//!            ↑
-//!            │ implements
-//!            │
-//! infrastructure::auth::JwtAuthAdapter (struct)
-//! ```
+//! JWT auth adapter.
+
+use std::collections::HashSet;
+
+use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
+use serde::{Deserialize, Serialize};
 
 use crate::domain::port::auth_port::AuthPort;
 
-/// JWT 认证适配器
-///
-/// 实现 `AuthPort` trait，提供基于 JWT 的认证功能。
-///
-/// # 字段
-/// - `secret`: JWT 签名密钥
-#[allow(dead_code)]
-pub struct JwtAuthAdapter {
-    /// JWT 签名密钥
-    secret: String,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Claims {
+    sub: String,
+    exp: usize,
+    #[serde(default)]
+    permissions: Vec<String>,
+    #[serde(default)]
+    role: Option<String>,
 }
 
-#[allow(dead_code)]
+pub struct JwtAuthAdapter {
+    decoding_key: DecodingKey,
+    validation: Validation,
+    admin_users: HashSet<String>,
+    write_permissions: HashSet<String>,
+}
+
 impl JwtAuthAdapter {
-    /// 创建新的 JWT 认证适配器
-    ///
-    /// # 参数
-    /// - `secret`: JWT 签名密钥
-    ///
-    /// # 返回值
-    /// JWT 认证适配器实例
     pub fn new(secret: String) -> Self {
-        Self { secret }
+        let mut validation = Validation::new(Algorithm::HS256);
+        validation.validate_exp = true;
+
+        let admin_users = std::env::var("GATEWAY_ADMIN_USERS")
+            .unwrap_or_default()
+            .split(",")
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(ToString::to_string)
+            .collect::<HashSet<_>>();
+
+        let write_permissions = std::env::var("GATEWAY_WRITE_PERMISSIONS")
+            .unwrap_or_else(|_| "strategies:write,orders:write,positions:write,risk:write,proxy:write".to_string())
+            .split(",")
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(ToString::to_string)
+            .collect::<HashSet<_>>();
+
+        Self {
+            decoding_key: DecodingKey::from_secret(secret.as_bytes()),
+            validation,
+            admin_users,
+            write_permissions,
+        }
+    }
+
+    fn decode_claims(&self, token: &str) -> Option<Claims> {
+        decode::<Claims>(token, &self.decoding_key, &self.validation)
+            .ok()
+            .map(|data| data.claims)
     }
 }
 
 impl AuthPort for JwtAuthAdapter {
-    /// 验证 JWT Token
-    ///
-    /// # 参数
-    /// - `_token`: JWT Token 字符串
-    ///
-    /// # 返回值
-    /// - `true`: Token 有效
-    /// - `false`: Token 无效
-    ///
-    /// # TODO
-    /// 实现 JWT 解析和验证逻辑
-    fn validate_token(&self, _token: &str) -> bool {
-        // TODO: 实现 JWT 验证
-        // 1. 解析 Token
-        // 2. 验证签名
-        // 3. 检查过期时间
-        false
+    fn validate_token(&self, token: &str) -> bool {
+        self.decode_claims(token).is_some()
     }
-    
-    /// 从 JWT Token 中提取用户 ID
-    ///
-    /// # 参数
-    /// - `_token`: JWT Token 字符串
-    ///
-    /// # 返回值
-    /// - `Some(user_id)`: 成功提取
-    /// - `None`: Token 无效
-    ///
-    /// # TODO
-    /// 实现 JWT claims 解析
-    fn get_user_id(&self, _token: &str) -> Option<String> {
-        // TODO: 实现 JWT claims 解析
-        // 1. 解析 Token
-        // 2. 提取 sub claim
-        None
+
+    fn get_user_id(&self, token: &str) -> Option<String> {
+        self.decode_claims(token).map(|claims| claims.sub)
     }
-    
-    /// 检查用户权限
-    ///
-    /// # 参数
-    /// - `_user_id`: 用户 ID
-    /// - `_resource`: 资源标识
-    ///
-    /// # 返回值
-    /// - `true`: 有权限
-    /// - `false`: 无权限
-    ///
-    /// # TODO
-    /// 实现权限检查逻辑
-    fn check_permission(&self, _user_id: &str, _resource: &str) -> bool {
-        // TODO: 实现权限检查
-        // 1. 查询用户角色
-        // 2. 检查角色权限
-        false
+
+    fn check_permission(&self, user_id: &str, resource: &str) -> bool {
+        if user_id.trim().is_empty() {
+            return false;
+        }
+
+        if self.admin_users.contains(user_id) {
+            return true;
+        }
+
+        if resource.ends_with(":read") {
+            return true;
+        }
+
+        self.write_permissions.contains(resource)
     }
 }

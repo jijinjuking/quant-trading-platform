@@ -1,71 +1,61 @@
-//! # 认证处理器
-//!
-//! 本文件定义认证相关的 HTTP 处理器。
-//!
-//! ## 所属层
-//! Interface Layer > HTTP > Handlers
-//!
-//! ## 端点
-//! - `POST /api/v1/auth/login`: 用户登录
-//! - `POST /api/v1/auth/register`: 用户注册
+//! Auth HTTP handlers.
 
-use axum::Json;
-use serde_json::Value;
+use axum::{extract::State, http::StatusCode, Json};
+use serde::{Deserialize, Serialize};
 
-/// 用户登录处理器
-///
-/// 处理用户登录请求，验证凭证并返回访问令牌。
-///
-/// # 返回值
-/// JSON 格式的登录响应
-///
-/// # TODO
-/// - 接收登录请求 DTO
-/// - 调用 AuthService 进行认证
-/// - 返回 JWT Token
-///
-/// # 响应示例
-/// ```json
-/// {
-///     "message": "login endpoint"
-/// }
-/// ```
-pub async fn login() -> Json<Value> {
-    // TODO: 实现登录逻辑
-    // 1. 解析请求体（email, password）
-    // 2. 调用 AuthService.login()
-    // 3. 返回 JWT Token
-    Json(serde_json::json!({
-        "message": "login endpoint"
-    }))
+use crate::application::service::auth_service::{AuthService, UserView};
+use crate::state::AppState;
+
+#[derive(Debug, Deserialize)]
+pub struct LoginRequest {
+    pub email: String,
+    pub password: String,
 }
 
-/// 用户注册处理器
-///
-/// 处理用户注册请求，创建新用户账户。
-///
-/// # 返回值
-/// JSON 格式的注册响应
-///
-/// # TODO
-/// - 接收注册请求 DTO
-/// - 验证输入数据
-/// - 调用 UserService 创建用户
-/// - 返回创建结果
-///
-/// # 响应示例
-/// ```json
-/// {
-///     "message": "register endpoint"
-/// }
-/// ```
-pub async fn register() -> Json<Value> {
-    // TODO: 实现注册逻辑
-    // 1. 解析请求体（username, email, password）
-    // 2. 验证输入数据
-    // 3. 调用 UserService.create_user()
-    // 4. 返回创建结果
-    Json(serde_json::json!({
-        "message": "register endpoint"
-    }))
+#[derive(Debug, Serialize)]
+pub struct LoginResponse {
+    pub token: String,
+    pub user: UserView,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RegisterRequest {
+    pub username: String,
+    pub email: String,
+    pub password: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RegisterResponse {
+    pub user: UserView,
+}
+
+pub async fn login(
+    State(state): State<AppState>,
+    Json(req): Json<LoginRequest>,
+) -> Result<Json<LoginResponse>, (StatusCode, String)> {
+    let service = AuthService::new(
+        state.user_repository.clone(),
+        state.config.jwt_secret.clone(),
+    );
+
+    match service.login(&req.email, &req.password).await {
+        Ok((token, user)) => Ok(Json(LoginResponse { token, user })),
+        Err(err) => Err((StatusCode::UNAUTHORIZED, err.to_string())),
+    }
+}
+
+pub async fn register(
+    State(state): State<AppState>,
+    Json(req): Json<RegisterRequest>,
+) -> Result<Json<RegisterResponse>, (StatusCode, String)> {
+    let service = AuthService::new(
+        state.user_repository.clone(),
+        state.config.jwt_secret.clone(),
+    );
+
+    match service.register(&req.username, &req.email, &req.password).await {
+        Ok(user) => Ok(Json(RegisterResponse { user })),
+        Err(err) => Err((StatusCode::BAD_REQUEST, err.to_string())),
+    }
 }

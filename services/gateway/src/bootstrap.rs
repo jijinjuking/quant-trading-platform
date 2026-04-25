@@ -15,8 +15,8 @@ use crate::application::service::auth_service::AuthService;
 pub fn create_auth_service(
     jwt_secret: String,
     redis_url: String,
-) -> AuthService<JwtAuthAdapter, RedisCache> {
+) -> anyhow::Result<AuthService<JwtAuthAdapter, RedisCache>> {
     let auth = JwtAuthAdapter::new(jwt_secret);
-    let cache = RedisCache::new(redis_url);
-    AuthService::new(auth, cache)
+    let cache = RedisCache::new(redis_url)?;
+    Ok(AuthService::new(auth, cache))
 }
